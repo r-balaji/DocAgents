@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenAiPromptTemplate xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Drafts a short, polite email to the borrower listing missing documents and quality issues that need attention.</description>
+    <developerName>AIDocBorrowerEmail</developerName>
+    <masterLabel>AI Doc Borrower Email</masterLabel>
+    <overridable>false</overridable>
+    <templateVersions>
+        <content>You are a loan officer&apos;s assistant drafting a short, polite, professional email to a borrower asking them to provide missing or replacement documents.
+
+Recipient: {!$Input:borrowerName}
+
+The recipient&apos;s coverage data (categories required vs. on file vs. missing) is:
+{!$Input:coverageJson}
+
+Per-file classification verdicts (already known to be the correct document type when OK):
+{!$Input:verdictsText}
+
+Per-file sanity findings (quality, completeness, borrower-identity, recency, expiry):
+{!$Input:sanityFindingsText}
+
+Write a single email body (no subject line, no salutation block separately, no closing block separately — just one continuous email body). Follow these rules:
+
+1. Start with &quot;Dear {!$Input:borrowerName},&quot;.
+2. One short opening sentence saying we&apos;re reviewing their application and need their help to complete it.
+3. A &quot;Documents we still need:&quot; section as a bulleted list of EVERY category that is missing (from coverageJson&apos;s missingCategoryNames).
+4. A &quot;Documents that need replacement or update:&quot; section as a bulleted list of files that have a sanity issue. Include items from sanityFindingsText where the verdict is one of: WRONG_BORROWER, INCOMPLETE, STALE, EXPIRED, EXPIRING_SOON, UNREADABLE. For each, briefly explain what&apos;s wrong in plain language (no technical labels — say &quot;we received only one month&quot; not &quot;INCOMPLETE&quot;). Skip this whole section if there are no issues.
+5. Do NOT mention documents that are OK. Do NOT mention documents that passed both classification and sanity.
+6. One short closing sentence thanking them and offering to help.
+7. Sign off with &quot;Best regards,\nYour Loan Officer&quot;.
+
+Rules:
+- Keep the entire email under 200 words.
+- Be warm but professional. No exclamation marks.
+- Do not invent categories or details not present in the inputs.
+- If both missing list AND issues list would be empty, write a short note saying we have everything we need and will be in touch shortly.
+
+Output the email body as plain text only (no markdown, no HTML, no quotes around the body).
+
+</content>
+        <fileDroppingStrategy>{&quot;dropFilesBy&quot;:&quot;LAST_MODIFIED_DATE&quot;,&quot;dropFileStartingWith&quot;:&quot;OLDEST&quot;}</fileDroppingStrategy>
+        <inputs>
+            <apiName>borrowerName</apiName>
+            <definition>primitive://String</definition>
+            <masterLabel>borrowerName</masterLabel>
+            <referenceName>Input:borrowerName</referenceName>
+            <required>true</required>
+        </inputs>
+        <inputs>
+            <apiName>coverageJson</apiName>
+            <definition>primitive://String</definition>
+            <masterLabel>coverageJson</masterLabel>
+            <referenceName>Input:coverageJson</referenceName>
+            <required>true</required>
+        </inputs>
+        <inputs>
+            <apiName>verdictsText</apiName>
+            <definition>primitive://String</definition>
+            <masterLabel>verdictsText</masterLabel>
+            <referenceName>Input:verdictsText</referenceName>
+            <required>true</required>
+        </inputs>
+        <inputs>
+            <apiName>sanityFindingsText</apiName>
+            <definition>primitive://String</definition>
+            <masterLabel>sanityFindingsText</masterLabel>
+            <referenceName>Input:sanityFindingsText</referenceName>
+            <required>true</required>
+        </inputs>
+        <isCitationEnabled>false</isCitationEnabled>
+        <primaryModel>sfdc_ai__DefaultGPT5Mini</primaryModel>
+        <status>Published</status>
+        <versionIdentifier>1uYwXIsacTc6GUywXfWs2MQcA3TrCGpuYXSdQoOUhi4=_1</versionIdentifier>
+    </templateVersions>
+    <type>einstein_gpt__flex</type>
+    <visibility>Global</visibility>
+</GenAiPromptTemplate>

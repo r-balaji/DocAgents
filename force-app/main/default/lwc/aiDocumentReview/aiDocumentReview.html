@@ -1,0 +1,207 @@
+<template>
+    <div class="review-shell">
+
+        <!-- ── HERO (compact: outer Salesforce modal already shows title) ── -->
+        <div class="hero hero-compact">
+            <div class="hero-left">
+                <div class="hero-icon">
+                    <lightning-icon icon-name="utility:einstein" size="small" alternative-text="AI"></lightning-icon>
+                </div>
+                <div>
+                    <p class="hero-kicker">AI document analysis</p>
+                    <p class="hero-subtitle">Automatically review, classify, and validate your important documents.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── METRICS ROW ─────────────────────────────────────────── -->
+        <div class="metric-panel">
+            <div class="metric">
+                <div class="metric-icon metric-blue">
+                    <lightning-icon icon-name="utility:description" size="small"></lightning-icon>
+                </div>
+                <div>
+                    <strong>{coverage.requiredCount}</strong>
+                    <span>Total Required</span>
+                    <small>Documents needed</small>
+                </div>
+            </div>
+            <div class="metric-divider"></div>
+            <div class="metric">
+                <div class="metric-icon metric-green">
+                    <lightning-icon icon-name="utility:check" size="small"></lightning-icon>
+                </div>
+                <div>
+                    <strong>{coverage.onFileCount}</strong>
+                    <span>On File</span>
+                    <small>Documents provided</small>
+                </div>
+            </div>
+            <div class="metric-divider"></div>
+            <div class="metric">
+                <div class="metric-icon metric-red">
+                    <lightning-icon icon-name="utility:warning" size="small"></lightning-icon>
+                </div>
+                <div>
+                    <strong>{coverage.missingCount}</strong>
+                    <span>Missing</span>
+                    <small>Documents not provided</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── SECTION 1: COVERAGE REPORT ────────────────────────── -->
+        <section class="review-card review-card-blue">
+            <div class="section-icon section-icon-blue">
+                <lightning-icon icon-name="utility:file" size="small"></lightning-icon>
+            </div>
+
+            <div class="section-line section-line-blue"></div>
+
+            <div class="section-main">
+                <div class="section-heading">
+                    <p class="eyebrow eyebrow-blue">1. Coverage Report</p>
+                    <h2>Check which documents are provided and which are missing.</h2>
+                </div>
+
+                <div class="coverage-layout">
+                    <div class="mini-metrics">
+                        <div>
+                            <strong>{coverage.requiredCount}</strong>
+                            <span>Required</span>
+                        </div>
+                        <div>
+                            <strong>{coverage.onFileCount}</strong>
+                            <span>On File</span>
+                        </div>
+                        <div>
+                            <strong>{coverage.missingCount}</strong>
+                            <span>Missing</span>
+                        </div>
+                    </div>
+
+                    <div class="doc-list">
+                        <h3>Documents we have on file</h3>
+                        <template for:each={providedDocuments} for:item="doc">
+                            <div key={doc.key} class="doc-row doc-row-success">
+                                <span>✓</span>
+                                <p>{doc.name}</p>
+                            </div>
+                        </template>
+                        <template lwc:if={noProvidedDocs}>
+                            <div class="doc-row doc-row-empty">
+                                <p>None yet</p>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div class="doc-list">
+                        <h3>Documents still missing</h3>
+                        <template for:each={missingDocuments} for:item="doc">
+                            <div key={doc.key} class="doc-row doc-row-error">
+                                <span>×</span>
+                                <p>{doc.name}</p>
+                            </div>
+                        </template>
+                        <template lwc:if={noMissingDocs}>
+                            <div class="doc-row doc-row-empty">
+                                <p>None — all documents provided!</p>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-art section-art-blue">
+                <lightning-icon icon-name="utility:description" size="large"></lightning-icon>
+            </div>
+        </section>
+
+        <!-- ── SECTION 2: CLASSIFICATION ─────────────────────────── -->
+        <section class="review-card review-card-green">
+            <div class="section-icon section-icon-green">
+                <lightning-icon icon-name="utility:topic" size="small"></lightning-icon>
+            </div>
+
+            <div class="section-line section-line-green"></div>
+
+            <div class="section-main">
+                <div class="section-heading">
+                    <p class="eyebrow eyebrow-green">2. Document Classification</p>
+                    <h2>AI verifies each document is in the right category.</h2>
+                </div>
+
+                <div class="classification-grid">
+                    <template for:each={classificationItems} for:item="item">
+                        <article key={item.key} class="classification-tile">
+                            <strong>{item.documentName}</strong>
+                            <span>{item.category}</span>
+                            <div class={item.pillClass}>{item.status}</div>
+                        </article>
+                    </template>
+                </div>
+            </div>
+
+            <div class="section-art section-art-green">
+                <lightning-icon icon-name="utility:success" size="large"></lightning-icon>
+            </div>
+        </section>
+
+        <!-- ── SECTION 3: SANITY FINDINGS ─────────────────────────── -->
+        <section class="review-card review-card-orange">
+            <div class="section-icon section-icon-orange">
+                <lightning-icon icon-name="utility:search" size="small"></lightning-icon>
+            </div>
+
+            <div class="section-line section-line-orange"></div>
+
+            <div class="section-main">
+                <div class="section-heading">
+                    <p class="eyebrow eyebrow-orange">3. Sanity Findings</p>
+                    <h2>AI reads submitted documents and highlights concerns.</h2>
+                </div>
+
+                <div class="findings">
+                    <template for:each={sanityItems} for:item="item">
+                        <article key={item.key} class={item.rowClass}>
+                            <div class="finding-icon">!</div>
+
+                            <div class="finding-doc">
+                                <strong>{item.documentName}</strong>
+                            </div>
+
+                            <div class="finding-content">
+                                <span class={item.statusClass}>{item.status}</span>
+                                <p class="finding-summary">{item.summary}</p>
+
+                                <template lwc:if={item.detail}>
+                                    <details class="finding-details">
+                                        <summary>View details</summary>
+                                        <p>{item.detail}</p>
+                                    </details>
+                                </template>
+                            </div>
+                        </article>
+                    </template>
+                </div>
+            </div>
+
+            <div class="section-art section-art-orange">
+                <lightning-icon icon-name="utility:search" size="large"></lightning-icon>
+            </div>
+        </section>
+
+        <!-- ── FOOTER ─────────────────────────────────────────────── -->
+        <div class="review-footer">
+            <div class="review-footer-left">
+                <lightning-icon icon-name="utility:email" size="small"></lightning-icon>
+                <div>
+                    <strong>AI review complete</strong>
+                    <p>Review the findings above and take action on missing or flagged documents.</p>
+                </div>
+            </div>
+            <button class="finish-button" onclick={handleFinish}>Finish Review</button>
+        </div>
+
+    </div>
+</template>
