@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomMetadata xmlns="http://soap.sforce.com/2006/04/metadata" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <label>Operating Agreement / Bylaws</label>
+    <protected>false</protected>
+    <values>
+        <field>Type_Code__c</field>
+        <value xsi:type="xsd:string">OPERATING_AGREEMENT</value>
+    </values>
+    <values>
+        <field>Classification_Hints__c</field>
+        <value xsi:type="xsd:string">Multi-page internal governance document. LLC Operating Agreement (members, capital contributions, distributions, management structure, voting) or Corporate Bylaws (board, officers, shareholder rights, meetings). Article and Section numbering, signature page at the end with member or director signatures.</value>
+    </values>
+    <values>
+        <field>Capture_Source__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>Sort_Order__c</field>
+        <value xsi:type="xsd:double">150</value>
+    </values>
+    <values>
+        <field>Is_Fallback__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>Is_Active__c</field>
+        <value xsi:type="xsd:boolean">true</value>
+    </values>
+</CustomMetadata>

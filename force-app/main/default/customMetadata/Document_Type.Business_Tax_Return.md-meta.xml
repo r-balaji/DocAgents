@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomMetadata xmlns="http://soap.sforce.com/2006/04/metadata" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <label>Business Tax Return</label>
+    <protected>false</protected>
+    <values>
+        <field>Type_Code__c</field>
+        <value xsi:type="xsd:string">BUSINESS_TAX_RETURN</value>
+    </values>
+    <values>
+        <field>Classification_Hints__c</field>
+        <value xsi:type="xsd:string">IRS business tax return — Form 1120 (C-corp), 1120-S (S-corp), or 1065 (partnership). Form number and tax year prominent in the header, business name and EIN, gross receipts, deductions, taxable income. Often filed with K-1 schedules.</value>
+    </values>
+    <values>
+        <field>Capture_Source__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>Sort_Order__c</field>
+        <value xsi:type="xsd:double">80</value>
+    </values>
+    <values>
+        <field>Is_Fallback__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>Is_Active__c</field>
+        <value xsi:type="xsd:boolean">true</value>
+    </values>
+</CustomMetadata>

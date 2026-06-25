@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomMetadata xmlns="http://soap.sforce.com/2006/04/metadata" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <label>Personal Financial Statement</label>
+    <protected>false</protected>
+    <values>
+        <field>Type_Code__c</field>
+        <value xsi:type="xsd:string">PERSONAL_FINANCIAL_STATEMENT</value>
+    </values>
+    <values>
+        <field>Classification_Hints__c</field>
+        <value xsi:type="xsd:string">SBA Form 413 or lender-specific personal financial statement. "Personal Financial Statement" title, "as of [date]", individual's name, sections for assets (cash, securities, real estate, retirement), liabilities (mortgage, credit cards, loans), and net worth. Signature block.</value>
+    </values>
+    <values>
+        <field>Capture_Source__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>Sort_Order__c</field>
+        <value xsi:type="xsd:double">110</value>
+    </values>
+    <values>
+        <field>Is_Fallback__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>Is_Active__c</field>
+        <value xsi:type="xsd:boolean">true</value>
+    </values>
+</CustomMetadata>

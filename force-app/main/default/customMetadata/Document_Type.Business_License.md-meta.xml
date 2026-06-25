@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomMetadata xmlns="http://soap.sforce.com/2006/04/metadata" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <label>Business License / Registration</label>
+    <protected>false</protected>
+    <values>
+        <field>Type_Code__c</field>
+        <value xsi:type="xsd:string">BUSINESS_LICENSE</value>
+    </values>
+    <values>
+        <field>Classification_Hints__c</field>
+        <value xsi:type="xsd:string">State or local business license, business registration certificate, or DBA filing. Government letterhead (state, county, or city), business name, license/registration number, license type, effective and expiration dates, issuing authority signature or seal.</value>
+    </values>
+    <values>
+        <field>Capture_Source__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>Sort_Order__c</field>
+        <value xsi:type="xsd:double">140</value>
+    </values>
+    <values>
+        <field>Is_Fallback__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>Is_Active__c</field>
+        <value xsi:type="xsd:boolean">true</value>
+    </values>
+</CustomMetadata>

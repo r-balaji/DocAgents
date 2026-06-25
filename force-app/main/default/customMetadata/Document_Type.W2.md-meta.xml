@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomMetadata xmlns="http://soap.sforce.com/2006/04/metadata" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <label>W-2</label>
+    <protected>false</protected>
+    <values>
+        <field>Type_Code__c</field>
+        <value xsi:type="xsd:string">W2</value>
+    </values>
+    <values>
+        <field>Classification_Hints__c</field>
+        <value xsi:type="xsd:string">IRS Form W-2 Wage and Tax Statement. Multi-pane red/black form with numbered boxes 1-20 (wages, federal tax withheld, social security wages, etc.), employer EIN, employee SSN (often masked), tax year clearly stated.</value>
+    </values>
+    <values>
+        <field>Capture_Source__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>Sort_Order__c</field>
+        <value xsi:type="xsd:double">40</value>
+    </values>
+    <values>
+        <field>Is_Fallback__c</field>
+        <value xsi:type="xsd:boolean">false</value>
+    </values>
+    <values>
+        <field>Is_Active__c</field>
+        <value xsi:type="xsd:boolean">true</value>
+    </values>
+</CustomMetadata>

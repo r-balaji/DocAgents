@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Is_Fallback__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Exactly one active record must be the fallback. Pages that match no other type are classified as this type.</description>
+    <externalId>false</externalId>
+    <fieldManageability>SubscriberControlled</fieldManageability>
+    <inlineHelpText>Exactly one active record must be the fallback. Pages the AI cannot classify into another type become this type. Do not check more than one record.</inlineHelpText>
+    <label>Is Fallback</label>
+    <type>Checkbox</type>
+</CustomField>

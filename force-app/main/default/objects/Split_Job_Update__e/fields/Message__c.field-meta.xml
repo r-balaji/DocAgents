@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Message__c</fullName>
+    <description>Human-readable message for the LWC, e.g. "Detected 3 segments" or an error reason.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Human-readable message for the LWC — e.g. "Detected 3 segments" on progress or the exception text on an Error event. 255-char cap; long detail goes on Split_Job__c.Error_Detail__c instead.</inlineHelpText>
+    <label>Message</label>
+    <length>255</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

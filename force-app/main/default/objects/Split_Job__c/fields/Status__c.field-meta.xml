@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Status__c</fullName>
+    <description>Lifecycle state of this split job. Drives the LWC progress UI.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Current lifecycle stage of this split job. Updated automatically by the splitter Apex Queueables — not intended for manual editing.</inlineHelpText>
+    <label>Status</label>
+    <required>true</required>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Queued</fullName>
+                <default>true</default>
+                <label>Queued</label>
+            </value>
+            <value>
+                <fullName>Detecting</fullName>
+                <default>false</default>
+                <label>Detecting</label>
+            </value>
+            <value>
+                <fullName>Merging</fullName>
+                <default>false</default>
+                <label>Merging</label>
+            </value>
+            <value>
+                <fullName>Splitting</fullName>
+                <default>false</default>
+                <label>Splitting</label>
+            </value>
+            <value>
+                <fullName>Saving</fullName>
+                <default>false</default>
+                <label>Saving</label>
+            </value>
+            <value>
+                <fullName>Complete</fullName>
+                <default>false</default>
+                <label>Complete</label>
+            </value>
+            <value>
+                <fullName>Error</fullName>
+                <default>false</default>
+                <label>Error</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

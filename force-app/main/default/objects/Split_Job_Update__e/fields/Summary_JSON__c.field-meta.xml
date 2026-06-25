@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Summary_JSON__c</fullName>
+    <description>Optional payload — used on the final Complete event to send the type-breakdown JSON to the LWC.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Populated only on the final Complete event with the full type breakdown JSON. Blank on intermediate progress events to keep the payload small.</inlineHelpText>
+    <label>Summary JSON</label>
+    <length>32768</length>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>LongTextArea</type>
+    <visibleLines>5</visibleLines>
+</CustomField>

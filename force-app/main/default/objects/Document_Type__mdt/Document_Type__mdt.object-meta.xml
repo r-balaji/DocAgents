@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Drives the AI Document Splitter classification prompt. Each active record represents one document type the AI can recognize. Type Code is the stable key returned by the model, Classification Hints describe the visual cues, and Sort Order resolves priority on ambiguous overlaps.</description>
+    <label>Document Type</label>
+    <pluralLabel>Document Types</pluralLabel>
+    <visibility>Public</visibility>
+</CustomObject>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Documents_Created__c</fullName>
+    <description>Running count of split files saved so far.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Running count of files saved so far. Incremented by each SplitSaveQueueable batch so the LWC can show live progress.</inlineHelpText>
+    <label>Documents Created</label>
+    <precision>5</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <type>Number</type>
+    <unique>false</unique>
+</CustomField>
