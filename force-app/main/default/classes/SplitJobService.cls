@@ -26,10 +26,12 @@ public with sharing class SplitJobService {
     }
 
     /**
-     * Create a Split_Job__c for a new bundle. Called from an @AuraEnabled method
-     * after the LWC has read the source PDF and computed chunk count.
+     * Create a Split_Job__c for a new bundle. folderId is optional — when set,
+     * the save Queueable drops the splits into that folder instead of the
+     * library root. The two-arg overload below is kept for callers that don't
+     * carry folder context.
      */
-    public static Id startJob(Id sourceContentDocumentId, Id libraryId, Integer totalPages, Integer chunkCount) {
+    public static Id startJob(Id sourceContentDocumentId, Id libraryId, Id folderId, Integer totalPages, Integer chunkCount) {
         if (sourceContentDocumentId == null) {
             throw new SplitJobException('sourceContentDocumentId is required.');
         }
@@ -46,6 +48,7 @@ public with sharing class SplitJobService {
         Split_Job__c job = new Split_Job__c(
             Source_ContentDocument_Id__c = (String) sourceContentDocumentId,
             Library_Id__c = (String) libraryId,
+            Target_Folder_Id__c = folderId == null ? null : (String) folderId,
             Status__c = 'Queued',
             Total_Pages__c = totalPages,
             Chunk_Count__c = chunkCount,
@@ -55,6 +58,13 @@ public with sharing class SplitJobService {
         Database.insert(job, AccessLevel.USER_MODE);
         publishUpdate(job.Id, 'Queued', null, 'Split job created.');
         return job.Id;
+    }
+
+    /**
+     * Convenience overload — no folder context, saves to library root.
+     */
+    public static Id startJob(Id sourceContentDocumentId, Id libraryId, Integer totalPages, Integer chunkCount) {
+        return startJob(sourceContentDocumentId, libraryId, null, totalPages, chunkCount);
     }
 
     /**
@@ -167,7 +177,9 @@ public with sharing class SplitJobService {
 
     /**
      * Called by the LWC after it has split the bundle and SplitSaveQueueable has
-     * saved all child files. Transitions the job to Complete.
+     * saved all child files. Transitions the job to Complete and deletes the
+     * temp chunk PDFs the LWC uploaded during preparation — they are no longer
+     * needed once everything is saved successfully.
      */
     public static void finalizeJob(Id jobId, Integer documentsCreated, String typeBreakdownJson) {
         if (jobId == null) {
@@ -181,6 +193,8 @@ public with sharing class SplitJobService {
             Type_Breakdown_JSON__c = typeBreakdownJson
         );
         Database.update(job, AccessLevel.USER_MODE);
+
+        cleanupTempChunkFiles(jobId);
 
         publishUpdate(jobId, 'Complete', typeBreakdownJson, 'Split complete.');
     }
@@ -209,7 +223,9 @@ public with sharing class SplitJobService {
 
     /**
      * Merge the accumulated raw segments using SegmentMerger and persist the result
-     * so the LWC can pick it up. Transitions Status to Splitting.
+     * so the LWC can pick it up. Transitions Status to Splitting. Also cleans up the
+     * temporary chunk PDFs the LWC uploaded for AI classification — they're done
+     * being read by this point and we don't want them cluttering the library.
      */
     @TestVisible
     private static void runMergeAndPrepareForSplit(Split_Job__c job) {
@@ -225,6 +241,47 @@ public with sharing class SplitJobService {
         Database.update(statusUpdate, AccessLevel.USER_MODE);
 
         publishUpdate(job.Id, 'Splitting', mergedJson, 'Merged into ' + merged.size() + ' segments.');
+    }
+
+    /**
+     * Delete the temp chunk PDFs the LWC uploaded for this job. They're named
+     * `bundle_chunk_*.pdf` and aren't needed after classification finishes.
+     * Failures here are logged but never propagated — cleanup is best-effort.
+     */
+    @TestVisible
+    private static void cleanupTempChunkFiles(Id jobId) {
+        if (Test.isRunningTest()) {
+            return;
+        }
+        try {
+            // The LWC uploaded chunks to the library between the source download
+            // and the startJob call, so they're titled bundle_chunk_N and exist
+            // as ContentDocuments in the same library. Find them by title pattern.
+            Split_Job__c job = [SELECT Library_Id__c, CreatedDate FROM Split_Job__c WHERE Id = :jobId LIMIT 1];
+            Id libraryId = (Id) job.Library_Id__c;
+            Datetime jobStart = job.CreatedDate;
+            // 5-minute window before the job for the temp-chunk uploads.
+            Datetime windowStart = jobStart.addMinutes(-5);
+
+            List<ContentWorkspaceDoc> memberships = [SELECT ContentDocumentId
+                                                     FROM ContentWorkspaceDoc
+                                                     WHERE ContentWorkspaceId = :libraryId];
+            Set<Id> libraryDocIds = new Set<Id>();
+            for (ContentWorkspaceDoc m : memberships) {
+                libraryDocIds.add(m.ContentDocumentId);
+            }
+            List<ContentDocument> chunkDocs = [SELECT Id FROM ContentDocument
+                                               WHERE Id IN :libraryDocIds
+                                                 AND Title LIKE 'bundle_chunk_%'
+                                                 AND CreatedDate >= :windowStart
+                                                 AND CreatedDate <= :jobStart];
+            if (!chunkDocs.isEmpty()) {
+                Database.delete(chunkDocs, false);
+            }
+        } catch (Exception e) {
+            // best-effort — don't kill the job over cleanup failure
+            System.debug(LoggingLevel.WARN, 'Temp chunk cleanup failed: ' + e.getMessage());
+        }
     }
 
     /**

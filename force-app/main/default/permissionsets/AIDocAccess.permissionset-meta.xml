@@ -91,6 +91,11 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
+        <field>Split_Job__c.Target_Folder_Id__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
         <field>Split_Job__c.Error_Detail__c</field>
         <readable>true</readable>
     </fieldPermissions>

@@ -5,20 +5,25 @@ import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import PDF_LIB_RESOURCE from '@salesforce/resourceUrl/pdfLib';
 
 import getLatestContentVersionId from '@salesforce/apex/SplitJobController.getLatestContentVersionId';
+import getFileContentBase64 from '@salesforce/apex/SplitJobController.getFileContentBase64';
+import getLibraryIdForFile from '@salesforce/apex/SplitJobController.getLibraryIdForFile';
+import getFolderIdForFile from '@salesforce/apex/SplitJobController.getFolderIdForFile';
 import uploadChunkPdf from '@salesforce/apex/SplitJobController.uploadChunkPdf';
 import startJob from '@salesforce/apex/SplitJobController.startJob';
 import enqueueChunkClassification from '@salesforce/apex/SplitJobController.enqueueChunkClassification';
 import startSaving from '@salesforce/apex/SplitJobController.startSaving';
 
-import { computeChunks, segmentsToSaveRequests, uint8ToBase64, decodeJobEvent } from './pdfLibUtil';
+import { computeChunks, segmentsToSaveRequests, uint8ToBase64, base64ToUint8, decodeJobEvent } from 'c/pdfUtil';
 
 const EVENT_CHANNEL = '/event/Split_Job_Update__e';
 
 export default class DocumentSplitter extends LightningElement {
     @api recordId;                              // ContentDocumentId (quick-action context)
-    @api libraryId;                             // FlexiPage attribute — required
+    @api libraryId;                             // Optional override; auto-detected from source if blank
     @api chunkSize = 8;                         // configurable in App Builder
     @api chunkOverlap = 2;
+
+    resolvedLibraryId;                          // populated at click-time from @api libraryId OR Apex auto-detect
 
     @track status = 'idle';
     @track statusMessage = '';
@@ -63,10 +68,6 @@ export default class DocumentSplitter extends LightningElement {
             this.toast('Not ready', 'pdf-lib is still loading. Try again in a moment.', 'warning');
             return;
         }
-        if (!this.libraryId) {
-            this.toast('Missing library', 'Library Id is not configured on this page. Ask an admin.', 'error');
-            return;
-        }
         try {
             await this.runSplitPipeline();
         } catch (e) {
@@ -76,19 +77,33 @@ export default class DocumentSplitter extends LightningElement {
 
     async runSplitPipeline() {
         this.status = 'preparing';
-        this.statusMessage = 'Loading source PDF...';
+        this.statusMessage = 'Resolving target library...';
         this.errorMessage = '';
 
+        // 0. Resolve the target library. Use the configured libraryId only if it
+        // looks like a ContentWorkspace Id (starts with 058). Otherwise auto-detect
+        // — this guards against an admin accidentally pasting a ContentDocument Id
+        // or another Salesforce Id into the property.
+        const configuredLooksValid = this.libraryId
+            && typeof this.libraryId === 'string'
+            && this.libraryId.startsWith('058')
+            && (this.libraryId.length === 15 || this.libraryId.length === 18);
+        this.resolvedLibraryId = configuredLooksValid
+            ? this.libraryId
+            : await getLibraryIdForFile({ sourceContentDocumentId: this.recordId });
+        this.resolvedFolderId = await getFolderIdForFile({ sourceContentDocumentId: this.recordId });
+
         // 1. Get the latest ContentVersion Id for the source document.
+        this.statusMessage = 'Loading source PDF...';
         const cvId = await getLatestContentVersionId({ contentDocumentId: this.recordId });
 
-        // 2. Download the source PDF bytes via the shepherd URL (session cookie auth).
-        const downloadUrl = `/sfc/servlet.shepherd/version/download/${cvId}`;
-        const resp = await fetch(downloadUrl, { credentials: 'include' });
-        if (!resp.ok) {
-            throw new Error(`Source PDF download failed (HTTP ${resp.status})`);
-        }
-        this.sourcePdfBytes = new Uint8Array(await resp.arrayBuffer());
+        // 2. Download the source PDF as base64 via Apex.
+        // Direct fetch() to the file servlet is blocked by Lightning's CSP/CORS
+        // (LWC iframe is on lightning.force.com but files live at my.salesforce.com).
+        // Going through Apex sidesteps the issue at the cost of Apex heap — fine
+        // for files up to ~8 MB raw, which covers most loan-doc bundles.
+        const base64 = await getFileContentBase64({ contentVersionId: cvId });
+        this.sourcePdfBytes = base64ToUint8(base64);
 
         // 3. Load the PDF in pdf-lib and read page count.
         const { PDFDocument } = window.PDFLib;
@@ -120,7 +135,7 @@ export default class DocumentSplitter extends LightningElement {
             const chunkCdId = await uploadChunkPdf({
                 fileName,
                 base64Content: base64,
-                libraryId: this.libraryId
+                libraryId: this.resolvedLibraryId
             });
             chunkUploads.push({ ...chunk, chunkContentDocumentId: chunkCdId });
             this.statusMessage = `Uploaded chunk ${chunk.chunkIndex + 1} of ${chunks.length}...`;
@@ -129,7 +144,8 @@ export default class DocumentSplitter extends LightningElement {
         // 6. Create the Split_Job__c.
         this.jobId = await startJob({
             sourceContentDocumentId: this.recordId,
-            libraryId: this.libraryId,
+            libraryId: this.resolvedLibraryId,
+            folderId: this.resolvedFolderId,
             totalPages,
             chunkCount: chunks.length
         });

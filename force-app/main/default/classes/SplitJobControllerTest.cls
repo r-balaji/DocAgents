@@ -41,7 +41,7 @@ private class SplitJobControllerTest {
         Id jobId;
         Test.startTest();
         System.runAs(getTestUser()) {
-            jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, 14, 2);
+            jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, null, 14, 2);
         }
         Test.stopTest();
 
@@ -55,7 +55,7 @@ private class SplitJobControllerTest {
         Test.startTest();
         System.runAs(getTestUser()) {
             try {
-                SplitJobController.startJob(null, FAKE_LIBRARY_ID, 1, 1);
+                SplitJobController.startJob(null, FAKE_LIBRARY_ID, null, 1, 1);
                 Assert.fail('Expected AuraHandledException for null sourceContentDocumentId');
             } catch (AuraHandledException e) {
                 // AuraHandledException scrubs the original message — we just verify the type.
@@ -74,7 +74,7 @@ private class SplitJobControllerTest {
         Id jobId;
         Test.startTest();
         System.runAs(getTestUser()) {
-            jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, 14, 1);
+            jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, null, 14, 1);
             SplitJobController.enqueueChunkClassification(jobId, 0, FAKE_CD_ID, 1);
         }
         Test.stopTest();
@@ -105,7 +105,7 @@ private class SplitJobControllerTest {
         Id jobId;
         Test.startTest();
         System.runAs(getTestUser()) {
-            jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, 5, 1);
+            jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, null, 5, 1);
             // Empty list finalizes the job immediately.
             SplitJobController.startSaving(jobId, '[]', 8);
         }
@@ -121,7 +121,7 @@ private class SplitJobControllerTest {
         Id jobId;
         Test.startTest();
         System.runAs(getTestUser()) {
-            jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, 5, 1);
+            jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, null, 5, 1);
             String tinyB64 = EncodingUtil.base64Encode(Blob.valueOf('%PDF-1.4\n%%EOF\n'));
             String requestsJson = '[{"fileName":"a.pdf","base64Content":"' + tinyB64
                 + '","documentType":"DRIVERS_LICENSE","sourceInstitution":null,"namedParty":"John","startPage":1,"endPage":1}]';

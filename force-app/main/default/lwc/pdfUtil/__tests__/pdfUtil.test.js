@@ -4,7 +4,7 @@ import {
     segmentsToSaveRequests,
     uint8ToBase64,
     decodeJobEvent
-} from '../pdfLibUtil';
+} from '../pdfUtil';
 
 describe('computeChunks', () => {
     it('returns empty for invalid input', () => {

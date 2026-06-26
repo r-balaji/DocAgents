@@ -1,0 +1,187 @@
+<template>
+    <lightning-card icon-name="utility:cut" title="AI Document Splitter Studio">
+        <div class="slds-p-around_medium">
+
+            <!-- ===== Picker + Upload (always visible above the fold) ===== -->
+            <div class="slds-grid slds-gutters slds-wrap source-grid">
+                <div class="slds-col slds-size_1-of-2 slds-small-size_1-of-1">
+                    <lightning-input
+                        type="search"
+                        label="Search Salesforce Files"
+                        placeholder="Search by file name (PDFs only)..."
+                        value={searchTerm}
+                        onchange={handleSearchChange}>
+                    </lightning-input>
+                    <div class="results-pane slds-m-top_x-small">
+                        <template lwc:if={searchResults.length}>
+                            <ul class="slds-has-dividers_around-space">
+                                <template for:each={searchResults} for:item="f">
+                                    <li key={f.id} class={f.isSelected} data-id={f.id}>
+                                        <button class="result-row slds-button slds-button_reset" data-id={f.id} onclick={handlePickFile}>
+                                            <lightning-icon icon-name="doctype:pdf" size="small" class="slds-m-right_x-small"></lightning-icon>
+                                            <span class="result-title">{f.title}</span>
+                                            <span class="result-meta slds-text-color_weak slds-text-body_small">{f.sizeLabel}</span>
+                                        </button>
+                                    </li>
+                                </template>
+                            </ul>
+                        </template>
+                        <template lwc:else>
+                            <p class="slds-text-color_weak slds-p-around_small slds-text-align_center">No PDF files match.</p>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="slds-col slds-size_1-of-2 slds-small-size_1-of-1">
+                    <label class="slds-form-element__label">Or upload a new PDF</label>
+                    <lightning-file-upload
+                        label=""
+                        accept={acceptedFormats}
+                        multiple="false"
+                        record-id=""
+                        onuploadfinished={handleUploadFinished}>
+                    </lightning-file-upload>
+
+                    <template lwc:if={selectedFile}>
+                        <div class="slds-box slds-box_x-small slds-m-top_small selected-box">
+                            <p class="slds-text-body_small slds-text-color_weak">Selected source file</p>
+                            <p class="slds-text-heading_small">{selectedFile.title}</p>
+                            <p class="slds-text-body_small slds-text-color_weak">{selectedFile.sizeLabel}</p>
+                            <div class="slds-m-top_x-small">
+                                <lightning-button
+                                    label="Split Documents"
+                                    variant="brand"
+                                    icon-name="utility:cut"
+                                    disabled={isBusy}
+                                    onclick={handleSplitClick}
+                                    class="slds-m-right_x-small">
+                                </lightning-button>
+                                <lightning-button
+                                    label="Clear"
+                                    variant="neutral"
+                                    onclick={handleClearSelection}>
+                                </lightning-button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- ===== Busy animation ===== -->
+            <template lwc:if={isBusy}>
+                <div class="busy-region slds-m-top_medium slds-box slds-theme_shade">
+                    <div class="slds-grid slds-grid_vertical-align-center">
+                        <div class="busy-spinner-wrap">
+                            <div class="busy-spinner"></div>
+                        </div>
+                        <div class="slds-col slds-m-left_medium">
+                            <p class="slds-text-heading_small">{progressLabel}</p>
+                            <p class="slds-text-body_small slds-text-color_weak">{statusMessage}</p>
+                        </div>
+                    </div>
+                    <div class="slds-progress-bar slds-progress-bar_circular slds-m-top_small" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+                        <span class="slds-progress-bar__value slds-progress-bar__value_success" style={progressPercentStyle}>
+                            <span class="slds-assistive-text">{progressPercent}%</span>
+                        </span>
+                    </div>
+                </div>
+            </template>
+
+            <!-- ===== Complete: results table ===== -->
+            <template lwc:if={isComplete}>
+                <div class="slds-m-top_medium">
+                    <div class="slds-grid slds-grid_align-spread slds-m-bottom_x-small">
+                        <h3 class="slds-text-heading_small">
+                            {outputFiles.length} split documents
+                            <span class="slds-text-color_weak slds-text-body_small slds-m-left_small">{selectedCountLabel}</span>
+                        </h3>
+                        <div>
+                            <lightning-button
+                                label="Delete Selected"
+                                icon-name="utility:delete"
+                                variant="destructive-text"
+                                onclick={handleDeleteSelected}
+                                class="slds-m-right_x-small">
+                            </lightning-button>
+                            <lightning-button
+                                label="Delete All Splits"
+                                icon-name="utility:delete"
+                                variant="destructive-text"
+                                onclick={handleDeleteAll}
+                                class="slds-m-right_x-small">
+                            </lightning-button>
+                            <lightning-button
+                                label="Start Over"
+                                icon-name="utility:refresh"
+                                variant="neutral"
+                                onclick={handleReset}>
+                            </lightning-button>
+                        </div>
+                    </div>
+
+                    <table class="slds-table slds-table_cell-buffer slds-table_bordered slds-table_striped">
+                        <thead>
+                            <tr>
+                                <th style="width:32px"><input type="checkbox" onchange={handleSelectAll}/></th>
+                                <th>File</th>
+                                <th>Size</th>
+                                <th style="width:60px"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template for:each={outputFiles} for:item="f">
+                                <tr key={f.id} data-id={f.id}>
+                                    <td>
+                                        <input type="checkbox"
+                                               data-id={f.id}
+                                               checked={f.isSelected}
+                                               onchange={handleOutputRowToggle}/>
+                                    </td>
+                                    <td>
+                                        <div class="slds-grid slds-grid_vertical-align-center">
+                                            <lightning-icon icon-name="doctype:pdf" size="small" class="slds-m-right_x-small"></lightning-icon>
+                                            <span>{f.title}</span>
+                                        </div>
+                                    </td>
+                                    <td class="slds-text-color_weak slds-text-body_small">{f.sizeLabel}</td>
+                                    <td>
+                                        <lightning-button-icon
+                                            icon-name="utility:preview"
+                                            variant="bare"
+                                            alternative-text="Open"
+                                            data-id={f.id}
+                                            data-version-id={f.latestVersionId}
+                                            onclick={handleOpenFile}>
+                                        </lightning-button-icon>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+
+                    <template lwc:if={breakdownLines.length}>
+                        <div class="slds-box slds-box_small slds-m-top_small">
+                            <p class="slds-text-body_small slds-text-color_weak">Summary</p>
+                            <ul class="slds-list_dotted slds-m-top_x-small">
+                                <template for:each={breakdownLines} for:item="line">
+                                    <li key={line.key}>{line.label}</li>
+                                </template>
+                            </ul>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
+            <!-- ===== Error ===== -->
+            <template lwc:if={isError}>
+                <div class="slds-box slds-theme_error slds-m-top_medium">
+                    <p class="slds-text-heading_small">Error</p>
+                    <p class="slds-text-body_small">{errorMessage}</p>
+                    <div class="slds-m-top_x-small">
+                        <lightning-button label="Try Again" variant="brand" onclick={handleReset}></lightning-button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </lightning-card>
+</template>

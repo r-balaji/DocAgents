@@ -1,23 +1,14 @@
 /**
- * Pure-function helpers for the documentSplitter LWC.
+ * Shared pure-function helpers for the document splitter LWCs.
  *
- * Keeping these out of the main component file makes them straightforward to
- * Jest-test without mocking the platform or pdf-lib's runtime behavior.
- *
- * pdf-lib operations themselves still happen in the main component because they
- * touch the global window.PDFLib injected by platformResourceLoader. The helpers
- * here cover: chunk math, filename construction, segment grouping for save, and
- * blob <-> base64 conversion.
+ * This LWC bundle exists only to expose JS exports. It has no template / class,
+ * so it's not surfaceable in the App Builder — `isExposed=false` in the meta xml.
+ * Both `documentSplitter` (record-page LWC) and `aiDocumentSplitterStudio`
+ * (app-page LWC) import from here.
  */
 
 /**
  * Compute overlapping chunks for a given page count.
- * @param {number} totalPages
- * @param {number} chunkSize default 8
- * @param {number} overlap default 2 (each chunk except the first re-includes
- *                              this many pages from the end of the previous)
- * @returns {Array<{chunkIndex: number, startPage: number, endPage: number}>}
- *          1-based page numbers, inclusive endPage.
  */
 export function computeChunks(totalPages, chunkSize = 8, overlap = 2) {
     if (!Number.isInteger(totalPages) || totalPages < 1) {
@@ -42,9 +33,7 @@ export function computeChunks(totalPages, chunkSize = 8, overlap = 2) {
 }
 
 /**
- * Build a human-readable, filesystem-safe filename for a split output.
- * Mirrors the Apex SplitSaveRequest.buildFileName helper so the LWC can
- * produce identical names client-side.
+ * Build a filesystem-safe filename matching the Apex SplitSaveRequest.buildFileName.
  */
 export function buildFileName(documentType, sourceInstitution, namedParty, index) {
     const parts = [toTitleCase(documentType)];
@@ -61,12 +50,8 @@ export function buildFileName(documentType, sourceInstitution, namedParty, index
 }
 
 /**
- * Re-key the merged segments into save requests, applying buildFileName and
- * incrementing per-(type,party,source) index so multiple files of the same
- * kind don't collide. Returns input ready for the Apex SplitJobController.startSaving.
- *
- * @param {Array<{documentType, sourceInstitution, namedParty, startPage, endPage}>} segments
- * @returns {Array<{fileName, documentType, sourceInstitution, namedParty, startPage, endPage}>}
+ * Re-key the merged segments into save requests, assigning per-(type,party,source)
+ * index so multiple files of the same kind don't collide.
  */
 export function segmentsToSaveRequests(segments) {
     const counts = new Map();
@@ -88,13 +73,11 @@ export function segmentsToSaveRequests(segments) {
 }
 
 /**
- * Convert a Uint8Array (from pdf-lib.save()) to a base64 string ready to send
- * to Apex. Uses a chunked loop to avoid the "argument list too long" issue
- * String.fromCharCode hits with very large byte arrays.
+ * Uint8Array -> base64 string. Chunked to avoid fromCharCode argument-list limits.
  */
 export function uint8ToBase64(bytes) {
     let binary = '';
-    const chunkSize = 0x8000; // 32 KB per chunk
+    const chunkSize = 0x8000;
     for (let i = 0; i < bytes.length; i += chunkSize) {
         const slice = bytes.subarray(i, i + chunkSize);
         binary += String.fromCharCode.apply(null, slice);
@@ -103,8 +86,19 @@ export function uint8ToBase64(bytes) {
 }
 
 /**
- * Decode the Split_Job_Update__e payload into a normalized shape.
- * Returns null if the event isn't for our job.
+ * base64 -> Uint8Array for feeding to pdf-lib.
+ */
+export function base64ToUint8(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+}
+
+/**
+ * Decode a Split_Job_Update__e event payload, filtering by expectedJobId.
  */
 export function decodeJobEvent(event, expectedJobId) {
     const payload = event && event.data && event.data.payload;

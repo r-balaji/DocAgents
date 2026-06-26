@@ -17,7 +17,7 @@
             </objects>
         </targetConfig>
         <targetConfig targets="lightning__RecordPage,lightning__AppPage">
-            <property name="libraryId" type="String" label="Library Id" description="ContentWorkspace (Library) Id where split files will be saved." required="true"/>
+            <property name="libraryId" type="String" label="Library Id (optional)" description="ContentWorkspace Id where split files will be saved. Leave blank to auto-detect from the source file's library."/>
             <property name="chunkSize" type="Integer" label="Chunk Size" description="Pages per AI classification chunk." default="8"/>
             <property name="chunkOverlap" type="Integer" label="Chunk Overlap" description="Pages each chunk re-includes from the previous chunk (heals seam-straddling docs)." default="2"/>
         </targetConfig>

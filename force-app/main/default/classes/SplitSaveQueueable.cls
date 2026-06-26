@@ -60,8 +60,9 @@ public with sharing class SplitSaveQueueable implements Queueable {
                 thisBatch.add(remaining[i]);
             }
 
-            Id libraryId = lookupLibraryId(jobId);
-            saveBatch(thisBatch, libraryId);
+            Split_Job__c jobCtx = lookupJobSaveContext(jobId);
+            saveBatch(thisBatch, (Id) jobCtx.Library_Id__c, jobId,
+                      String.isBlank(jobCtx.Target_Folder_Id__c) ? null : (Id) jobCtx.Target_Folder_Id__c);
 
             Integer newSavedTotal = documentsSavedSoFar + thisBatch.size();
             tallyTypes(thisBatch, typeCountsSoFar);
@@ -105,7 +106,7 @@ public with sharing class SplitSaveQueueable implements Queueable {
      * tally, finalize, error handling) is covered by unit tests.
      */
     @TestVisible
-    private static void saveBatch(List<SplitSaveRequest> batch, Id libraryId) {
+    private static void saveBatch(List<SplitSaveRequest> batch, Id libraryId, Id jobId, Id folderId) {
         if (Test.isRunningTest()) {
             return;
         }
@@ -125,6 +126,51 @@ public with sharing class SplitSaveQueueable implements Queueable {
             return;
         }
         Database.insert(versions, AccessLevel.USER_MODE);
+
+        // FirstPublishLocationId is supposed to auto-create the workspace link, but
+        // it silently fails in some org configurations (perm shape, license, etc).
+        // Belt-and-suspenders: query the resulting ContentDocumentIds and explicitly
+        // create ContentDocumentLink records for both the library and the job, so
+        // the files are guaranteed to be findable and the listing query is reliable.
+        Set<Id> cvIds = new Set<Id>();
+        for (ContentVersion v : versions) {
+            cvIds.add(v.Id);
+        }
+        List<ContentVersion> reloaded = [SELECT Id, ContentDocumentId FROM ContentVersion WHERE Id IN :cvIds];
+        List<ContentDocumentLink> links = new List<ContentDocumentLink>();
+        for (ContentVersion v : reloaded) {
+            // Library link — makes the file visible in the library UI.
+            links.add(new ContentDocumentLink(
+                ContentDocumentId = v.ContentDocumentId,
+                LinkedEntityId = libraryId,
+                ShareType = 'V'
+            ));
+            // Job link — lets us query "what files did this job produce".
+            links.add(new ContentDocumentLink(
+                ContentDocumentId = v.ContentDocumentId,
+                LinkedEntityId = jobId,
+                ShareType = 'V'
+            ));
+        }
+        if (!links.isEmpty()) {
+            // allOrNone=false — if a link already exists (e.g. FirstPublishLocationId
+            // did succeed for some), the duplicate just fails for that one row.
+            Database.insert(links, false, AccessLevel.USER_MODE);
+        }
+
+        // If the source bundle lived in a folder, drop each split into the same folder.
+        if (folderId != null) {
+            List<ContentFolderMember> folderMemberships = new List<ContentFolderMember>();
+            for (ContentVersion v : reloaded) {
+                folderMemberships.add(new ContentFolderMember(
+                    ParentContentFolderId = folderId,
+                    ChildRecordId = v.ContentDocumentId
+                ));
+            }
+            // allOrNone=false: if Salesforce already added the file to a default
+            // folder (some orgs do), the duplicate just no-ops for that row.
+            Database.insert(folderMemberships, false, AccessLevel.USER_MODE);
+        }
     }
 
     @TestVisible
@@ -134,6 +180,16 @@ public with sharing class SplitSaveQueueable implements Queueable {
             throw new SplitJobException('Library_Id__c is missing on Split_Job__c ' + jobId);
         }
         return (Id) job.Library_Id__c;
+    }
+
+    @TestVisible
+    private static Split_Job__c lookupJobSaveContext(Id jobId) {
+        Split_Job__c job = [SELECT Library_Id__c, Target_Folder_Id__c
+                            FROM Split_Job__c WHERE Id = :jobId WITH USER_MODE LIMIT 1];
+        if (String.isBlank(job.Library_Id__c)) {
+            throw new SplitJobException('Library_Id__c is missing on Split_Job__c ' + jobId);
+        }
+        return job;
     }
 
     @TestVisible
