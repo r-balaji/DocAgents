@@ -228,7 +228,52 @@ private class SplitJobServiceTest {
         Test.stopTest();
     }
 
+    @IsTest
+    static void shouldReplaceSource_WhenSingleFullCoverageNonOtherSegment() {
+        Split_Job__c job = buildJobForReplacementTest(1, 5, '[{"documentType":"BANK_STATEMENT","startPage":1,"endPage":5}]');
+        Assert.isTrue(SplitJobService.shouldReplaceSource(job),
+            'Single non-OTHER segment covering all pages should replace the source');
+    }
+
+    @IsTest
+    static void shouldNotReplaceSource_WhenSingleSegmentIsOther() {
+        Split_Job__c job = buildJobForReplacementTest(1, 5, '[{"documentType":"OTHER","startPage":1,"endPage":5}]');
+        Assert.isFalse(SplitJobService.shouldReplaceSource(job),
+            'OTHER means the AI was uncertain — keep the source');
+    }
+
+    @IsTest
+    static void shouldNotReplaceSource_WhenMultipleSegments() {
+        Split_Job__c job = buildJobForReplacementTest(2, 5,
+            '[{"documentType":"BANK_STATEMENT","startPage":1,"endPage":3},{"documentType":"W2","startPage":4,"endPage":5}]');
+        Assert.isFalse(SplitJobService.shouldReplaceSource(job),
+            'Multiple documents mean the source is the only consolidated copy — keep it');
+    }
+
+    @IsTest
+    static void shouldNotReplaceSource_WhenSegmentDoesNotCoverAllPages() {
+        Split_Job__c job = buildJobForReplacementTest(1, 5, '[{"documentType":"BANK_STATEMENT","startPage":1,"endPage":3}]');
+        Assert.isFalse(SplitJobService.shouldReplaceSource(job),
+            'Partial coverage means the source has pages the output does not — keep it');
+    }
+
+    @IsTest
+    static void shouldNotReplaceSource_WhenMergedJsonBlank() {
+        Split_Job__c job = buildJobForReplacementTest(1, 5, null);
+        Assert.isFalse(SplitJobService.shouldReplaceSource(job),
+            'No merged segments to evaluate — keep the source');
+    }
+
     // --- Helper -------------------------------------------------------------
+
+    private static Split_Job__c buildJobForReplacementTest(Integer docsCreated, Integer totalPages, String mergedJson) {
+        return new Split_Job__c(
+            Source_ContentDocument_Id__c = (String) FAKE_CD_ID,
+            Total_Pages__c = totalPages,
+            Documents_Created__c = docsCreated,
+            Merged_Segments_JSON__c = mergedJson
+        );
+    }
 
     private static void assertStartJobThrows(Id sourceCdId, Id libraryId, Integer total, Integer chunks, String expectedFieldInMessage) {
         try {

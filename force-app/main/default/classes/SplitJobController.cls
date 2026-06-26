@@ -217,7 +217,10 @@ public with sharing class SplitJobController {
     @AuraEnabled(cacheable=false)
     public static List<JobOutputFile> getJobOutputFiles(Id jobId) {
         if (jobId == null) {
-            throw new AuraHandledException('jobId is required.');
+            // Stale client (cached old LWC bundle, or post-reset state). Return
+            // an empty list rather than throwing — the caller has nothing to
+            // render and we don't want a benign call to pollute Apex debug logs.
+            return new List<JobOutputFile>();
         }
         try {
             // The save Queueable creates ContentDocumentLink records with

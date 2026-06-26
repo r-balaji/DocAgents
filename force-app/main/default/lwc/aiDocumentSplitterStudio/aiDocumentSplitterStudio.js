@@ -1,4 +1,4 @@
-import { LightningElement, track } from 'lwc';
+import { LightningElement, api, track } from 'lwc';
 import { loadScript } from 'lightning/platformResourceLoader';
 import { subscribe, unsubscribe, onError } from 'lightning/empApi';
 import { NavigationMixin } from 'lightning/navigation';
@@ -28,6 +28,9 @@ import {
 const EVENT_CHANNEL = '/event/Split_Job_Update__e';
 
 export default class AiDocumentSplitterStudio extends NavigationMixin(LightningElement) {
+    @api chunkSize = 8;
+    @api chunkOverlap = 2;
+
     @track searchTerm = '';
     @track searchResults = [];
     @track selectedFile;                            // {id, title, fileType, size, latestVersionId}
@@ -38,6 +41,7 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
     @track outputFiles = [];                        // [{id, title, ...}]
     @track selectedOutputIds = new Set();
     @track typeBreakdown = [];
+    @track isDeleting = false;
 
     pdfLibReady = false;
     subscription;
@@ -165,7 +169,7 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
         const { PDFDocument } = window.PDFLib;
         const sourceDoc = await PDFDocument.load(this.sourcePdfBytes);
         const totalPages = sourceDoc.getPageCount();
-        const chunks = computeChunks(totalPages, 8, 2);
+        const chunks = computeChunks(totalPages, this.chunkSize, this.chunkOverlap);
         if (chunks.length === 0) {
             throw new Error('Source PDF has no pages.');
         }
@@ -265,6 +269,14 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
             await startSaving({ jobId: this.jobId, requestsJson: '[]', batchSize: 8 });
             return;
         }
+        if (!this.sourcePdfBytes) {
+            // Stale Splitting event from a previous job in this tab, or this LWC
+            // instance was re-mounted after the pipeline started. Backend already
+            // produced the merged JSON; we just can't drive the binary split
+            // here. The save phase happened on the prior instance — nothing for
+            // us to do beyond logging.
+            return;
+        }
         const { PDFDocument } = window.PDFLib;
         const sourceDoc = await PDFDocument.load(this.sourcePdfBytes);
         const requests = segmentsToSaveRequests(segments);
@@ -289,6 +301,7 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
     }
 
     async loadOutputFiles() {
+        if (!this.jobId) return;
         try {
             const files = await getJobOutputFiles({ jobId: this.jobId });
             this.outputFiles = files.map((f) => ({
@@ -338,6 +351,8 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
     }
 
     async deleteByIds(ids) {
+        if (this.isDeleting) return;   // ignore double-clicks
+        this.isDeleting = true;
         try {
             const count = await deleteFiles({
                 contentDocumentIds: ids,
@@ -347,6 +362,8 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
             await this.loadOutputFiles();
         } catch (e) {
             this.toast('Delete failed', e.body ? e.body.message : e.message, 'error');
+        } finally {
+            this.isDeleting = false;
         }
     }
 

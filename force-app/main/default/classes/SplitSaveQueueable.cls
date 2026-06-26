@@ -158,18 +158,26 @@ public with sharing class SplitSaveQueueable implements Queueable {
             Database.insert(links, false, AccessLevel.USER_MODE);
         }
 
-        // If the source bundle lived in a folder, drop each split into the same folder.
+        // Setting FirstPublishLocationId auto-creates a ContentFolderMember pointing
+        // to the library's root folder. ChildRecordId is unique, so inserting a second
+        // membership for our target subfolder fails on the uniqueness constraint.
+        // MOVE the existing root membership to the target folder instead.
         if (folderId != null) {
-            List<ContentFolderMember> folderMemberships = new List<ContentFolderMember>();
+            Set<Id> docIds = new Set<Id>();
             for (ContentVersion v : reloaded) {
-                folderMemberships.add(new ContentFolderMember(
-                    ParentContentFolderId = folderId,
-                    ChildRecordId = v.ContentDocumentId
-                ));
+                docIds.add(v.ContentDocumentId);
             }
-            // allOrNone=false: if Salesforce already added the file to a default
-            // folder (some orgs do), the duplicate just no-ops for that row.
-            Database.insert(folderMemberships, false, AccessLevel.USER_MODE);
+            List<ContentFolderMember> existingMembers = [
+                SELECT Id, ParentContentFolderId, ChildRecordId
+                FROM ContentFolderMember
+                WHERE ChildRecordId IN :docIds
+            ];
+            for (ContentFolderMember m : existingMembers) {
+                m.ParentContentFolderId = folderId;
+            }
+            if (!existingMembers.isEmpty()) {
+                Database.update(existingMembers, false);
+            }
         }
     }
 

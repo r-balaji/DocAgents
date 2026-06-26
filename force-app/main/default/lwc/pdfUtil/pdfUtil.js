@@ -117,11 +117,18 @@ export function base64ToUint8(base64) {
 
 /**
  * Decode a Split_Job_Update__e event payload, filtering by expectedJobId.
+ *
+ * empApi subscriptions are channel-wide, so every LWC instance (every tab,
+ * every user) receives every event. An instance that hasn't started a job
+ * must ignore ALL events — otherwise it tries to act on someone else's job
+ * with an undefined this.jobId, hitting downstream "jobId is required" /
+ * pdf-undefined errors. So expectedJobId is required, not optional.
  */
 export function decodeJobEvent(event, expectedJobId) {
+    if (!expectedJobId) return null;
     const payload = event && event.data && event.data.payload;
     if (!payload) return null;
-    if (expectedJobId && payload.Job_Id__c !== expectedJobId) return null;
+    if (payload.Job_Id__c !== expectedJobId) return null;
     return {
         jobId: payload.Job_Id__c,
         status: payload.Status__c,

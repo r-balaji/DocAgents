@@ -209,7 +209,10 @@ export default class DocumentSplitter extends LightningElement {
             return;
         }
         if (!this.sourcePdfBytes) {
-            throw new Error('Source PDF bytes were not cached for the split step.');
+            // Stale event (LWC re-mounted after pipeline started in a prior
+            // instance). The Apex finalizer will still complete the job;
+            // nothing for this instance to do here.
+            return;
         }
 
         const { PDFDocument } = window.PDFLib;

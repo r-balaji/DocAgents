@@ -172,7 +172,8 @@ public with sharing class SplitJobService {
         Database.update(jobUpdate, AccessLevel.USER_MODE);
 
         publishUpdate(jobId, 'Saving', null,
-            'Saved ' + (documentsSavedSoFar == null ? 0 : documentsSavedSoFar) + ' files so far.');
+            'Saved ' + (documentsSavedSoFar == null ? 0 : documentsSavedSoFar) + ' files so far.',
+            documentsSavedSoFar == null ? 0 : documentsSavedSoFar);
     }
 
     /**
@@ -195,8 +196,65 @@ public with sharing class SplitJobService {
         Database.update(job, AccessLevel.USER_MODE);
 
         cleanupTempChunkFiles(jobId);
+        deleteSourceIfReplacedByOneFile(jobId);
 
-        publishUpdate(jobId, 'Complete', typeBreakdownJson, 'Split complete.');
+        publishUpdate(jobId, 'Complete', typeBreakdownJson, 'Split complete.',
+            documentsCreated == null ? 0 : documentsCreated);
+    }
+
+    /**
+     * When the AI produced exactly one well-typed segment that covers the entire
+     * source bundle, the newly-saved file is essentially a renamed duplicate of
+     * the source. Delete the source so the library doesn't accumulate redundancy.
+     * Best-effort — never blocks the job from being marked Complete.
+     */
+    @TestVisible
+    private static void deleteSourceIfReplacedByOneFile(Id jobId) {
+        if (Test.isRunningTest()) {
+            return;
+        }
+        try {
+            Split_Job__c job = [SELECT Source_ContentDocument_Id__c, Total_Pages__c,
+                                       Documents_Created__c, Merged_Segments_JSON__c
+                                FROM Split_Job__c WHERE Id = :jobId LIMIT 1];
+            if (!shouldReplaceSource(job)) {
+                return;
+            }
+            Database.delete(new ContentDocument(Id = (Id) job.Source_ContentDocument_Id__c), false);
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN, 'Source replacement skipped: ' + e.getMessage());
+        }
+    }
+
+    /**
+     * Pure-logic guard for source auto-deletion. Returns true only when the job
+     * produced a single, fully-covering, non-OTHER segment — meaning the saved
+     * output is a renamed duplicate of the source.
+     */
+    @TestVisible
+    private static Boolean shouldReplaceSource(Split_Job__c job) {
+        if (job == null) return false;
+        if (job.Documents_Created__c == null || job.Documents_Created__c != 1) return false;
+        if (String.isBlank(job.Merged_Segments_JSON__c)) return false;
+        if (job.Total_Pages__c == null) return false;
+        if (String.isBlank(job.Source_ContentDocument_Id__c)) return false;
+
+        List<Object> segments;
+        try {
+            segments = (List<Object>) JSON.deserializeUntyped(job.Merged_Segments_JSON__c);
+        } catch (Exception e) {
+            return false;
+        }
+        if (segments == null || segments.size() != 1) return false;
+
+        Map<String, Object> only = (Map<String, Object>) segments[0];
+        String type = (String) only.get('documentType');
+        if (String.isBlank(type) || FALLBACK_TYPE.equalsIgnoreCase(type)) return false;
+
+        Integer startPage = (Integer) only.get('startPage');
+        Integer endPage = (Integer) only.get('endPage');
+        if (startPage == null || endPage == null) return false;
+        return startPage == 1 && endPage == (Integer) job.Total_Pages__c;
     }
 
     /**
@@ -332,11 +390,17 @@ public with sharing class SplitJobService {
      */
     @TestVisible
     private static void publishUpdate(Id jobId, String status, String summaryJson, String message) {
+        publishUpdate(jobId, status, summaryJson, message, null);
+    }
+
+    @TestVisible
+    private static void publishUpdate(Id jobId, String status, String summaryJson, String message, Integer documentsCreated) {
         Split_Job_Update__e evt = new Split_Job_Update__e(
             Job_Id__c = (String) jobId,
             Status__c = status,
             Summary_JSON__c = summaryJson == null ? null : summaryJson.left(32768),
-            Message__c = message == null ? null : message.left(255)
+            Message__c = message == null ? null : message.left(255),
+            Documents_Created__c = documentsCreated
         );
         EventBus.publish(evt);
     }

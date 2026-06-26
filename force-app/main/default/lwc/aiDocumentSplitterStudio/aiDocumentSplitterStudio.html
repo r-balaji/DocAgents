@@ -101,6 +101,7 @@
                                 icon-name="utility:delete"
                                 variant="destructive-text"
                                 onclick={handleDeleteSelected}
+                                disabled={isDeleting}
                                 class="slds-m-right_x-small">
                             </lightning-button>
                             <lightning-button
@@ -108,17 +109,23 @@
                                 icon-name="utility:delete"
                                 variant="destructive-text"
                                 onclick={handleDeleteAll}
+                                disabled={isDeleting}
                                 class="slds-m-right_x-small">
                             </lightning-button>
                             <lightning-button
                                 label="Start Over"
                                 icon-name="utility:refresh"
                                 variant="neutral"
+                                disabled={isDeleting}
                                 onclick={handleReset}>
                             </lightning-button>
                         </div>
                     </div>
 
+                    <div class="slds-is-relative">
+                        <template lwc:if={isDeleting}>
+                            <lightning-spinner alternative-text="Deleting files..." size="small"></lightning-spinner>
+                        </template>
                     <table class="slds-table slds-table_cell-buffer slds-table_bordered slds-table_striped">
                         <thead>
                             <tr>
@@ -158,6 +165,7 @@
                             </template>
                         </tbody>
                     </table>
+                    </div>
 
                     <template lwc:if={breakdownLines.length}>
                         <div class="slds-box slds-box_small slds-m-top_small">
