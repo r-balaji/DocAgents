@@ -1,0 +1,3 @@
+/* Use SLDS only — no custom theming. The card chrome + progress bar +
+   success/error boxes are all built-in SLDS. This file exists so the LWC
+   bundle has a CSS entry, but intentionally contains no overrides. */

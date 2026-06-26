@@ -71,7 +71,7 @@ public class SegmentMerger {
             if (endP < startP) {
                 continue;
             }
-            out.add(new DocSegment(s.documentType, s.sourceInstitution, startP, endP));
+            out.add(new DocSegment(s.documentType, s.sourceInstitution, s.namedParty, startP, endP));
         }
         return out;
     }
@@ -97,13 +97,31 @@ public class SegmentMerger {
                 continue;
             }
 
+            // Merge only when BOTH the document type matches AND the named parties are
+            // compatible. Parties are compatible if both are blank, OR one is blank
+            // (one chunk didn't extract the name), OR both normalize to the same string.
+            // Two adjacent DRIVERS_LICENSE segments with DIFFERENT populated names
+            // (John on page 4, Jimmy on page 5) stay as separate segments.
             Boolean sameType = last.documentType == incoming.documentType;
+            Boolean partiesCompatible = arePartiesCompatible(last.namedParty, incoming.namedParty);
 
-            if (sameType) {
+            if (sameType && partiesCompatible) {
                 last.endPage = Math.max(last.endPage, incoming.endPage);
                 if (String.isBlank(last.sourceInstitution) && String.isNotBlank(incoming.sourceInstitution)) {
                     last.sourceInstitution = incoming.sourceInstitution;
                 }
+                if (String.isBlank(last.namedParty) && String.isNotBlank(incoming.namedParty)) {
+                    last.namedParty = incoming.namedParty;
+                }
+                continue;
+            }
+
+            // Adjacent but different key (different type OR different populated party).
+            // They are touching, not overlapping — just append the incoming segment.
+            // The split-at-midpoint branch below only applies to true overlaps.
+            Boolean adjacentNotOverlapping = incoming.startPage == last.endPage + 1;
+            if (adjacentNotOverlapping) {
+                out.add(incoming);
                 continue;
             }
 
@@ -142,6 +160,36 @@ public class SegmentMerger {
             filled.add(new DocSegment(fallbackType, cursor, totalPages));
         }
         return filled;
+    }
+
+    /**
+     * Lowercase + strip non-essential whitespace/punctuation so that two named
+     * parties that differ only by case ("John Smith" vs "JOHN SMITH") or formatting
+     * ("John Smith" vs "John  Smith") collapse to the same key. Returns empty string
+     * for null/blank inputs so two null names compare equal (both treated as "no party").
+     */
+    @TestVisible
+    private static String normalizeName(String s) {
+        if (String.isBlank(s)) {
+            return '';
+        }
+        return s.toLowerCase().replaceAll('\\s+', ' ').trim();
+    }
+
+    /**
+     * Two party names are "compatible" for merging if at least one is blank, or
+     * if both normalize to the same string. Blank-vs-populated represents the
+     * common chunk-seam case where one chunk extracted the name and the other
+     * did not; we treat that as the same document.
+     */
+    @TestVisible
+    private static Boolean arePartiesCompatible(String a, String b) {
+        String aNorm = normalizeName(a);
+        String bNorm = normalizeName(b);
+        if (aNorm == '' || bNorm == '') {
+            return true;
+        }
+        return aNorm == bNorm;
     }
 
     /**

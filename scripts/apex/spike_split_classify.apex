@@ -13,7 +13,7 @@
 //   SPIKE_OUTPUT: [{"document_type":"...","source_institution":"...","start_page":1,"end_page":N}, ...]
 //   SPIKE_PARSED: <N> segments returned
 
-Id targetFileId = '069a500000G7T0rAAF';  // vance_electric_sample_bank_statement_april_2026_test_fixture (18KB)
+Id targetFileId = '069a500000GObbWAAT';  // user-uploaded test bundle
 
 ContentDocument cd = [SELECT Id, Title FROM ContentDocument WHERE Id = :targetFileId LIMIT 1];
 System.debug('SPIKE_FILE: ' + cd.Title + ' (' + cd.Id + ')');
@@ -52,6 +52,7 @@ try {
         System.debug('  [' + i + '] '
             + seg.get('document_type') + ' '
             + (seg.get('source_institution') == null ? '' : '(' + seg.get('source_institution') + ') ')
+            + (seg.get('named_party') == null ? '' : '[' + seg.get('named_party') + '] ')
             + 'p' + seg.get('start_page') + '-' + seg.get('end_page'));
     }
 } catch (Exception e) {

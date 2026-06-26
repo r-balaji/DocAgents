@@ -316,6 +316,105 @@ private class SegmentMergerTest {
         Assert.areEqual(5, out[0].endPage, 'End at totalPages');
     }
 
+    // ----- Party-aware merging -----------------------------------------------
+
+    @IsTest
+    static void shouldNotMergeAdjacentSegments_WhenDifferentParty() {
+        // John's DL on page 4 + Jimmy's DL on page 5 - adjacent, same type, but
+        // different parties. Must stay as two separate segments.
+        List<DocSegment> raw = new List<DocSegment>{
+            new DocSegment('DRIVERS_LICENSE', null, 'John Smith', 4, 4),
+            new DocSegment('DRIVERS_LICENSE', null, 'Jimmy Smith', 5, 5)
+        };
+
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
+        Test.stopTest();
+
+        // Expect: [OTHER 1-3, DL John 4-4, DL Jimmy 5-5] = 3 segments
+        Assert.areEqual(3, out.size(), 'Adjacent same-type different-party should NOT merge');
+        Assert.areEqual('John Smith', out[1].namedParty, 'Second segment is John');
+        Assert.areEqual('Jimmy Smith', out[2].namedParty, 'Third segment is Jimmy');
+    }
+
+    @IsTest
+    static void shouldMergeAdjacentSegments_WhenSameTypeSameParty() {
+        // Front + back of John's DL on adjacent pages should merge into one segment.
+        List<DocSegment> raw = new List<DocSegment>{
+            new DocSegment('DRIVERS_LICENSE', null, 'John Smith', 4, 4),
+            new DocSegment('DRIVERS_LICENSE', null, 'John Smith', 5, 5)
+        };
+
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
+        Test.stopTest();
+
+        DocSegment dl = findByType(out, 'DRIVERS_LICENSE');
+        Assert.isNotNull(dl, 'Driver License segment should be present');
+        Assert.areEqual(4, dl.startPage, 'Merged start should be 4');
+        Assert.areEqual(5, dl.endPage, 'Merged end should be 5');
+        Assert.areEqual('John Smith', dl.namedParty, 'Party preserved');
+    }
+
+    @IsTest
+    static void shouldMergeAdjacentSegments_WhenSamePartyDespiteCaseDifference() {
+        // The AI may return "John Smith" on one chunk and "JOHN SMITH" on the next.
+        // The merger normalizes for comparison so they collapse to one segment.
+        List<DocSegment> raw = new List<DocSegment>{
+            new DocSegment('DRIVERS_LICENSE', null, 'John Smith', 4, 4),
+            new DocSegment('DRIVERS_LICENSE', null, 'JOHN SMITH', 5, 5)
+        };
+
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
+        Test.stopTest();
+
+        Integer dlCount = 0;
+        for (DocSegment s : out) {
+            if (s.documentType == 'DRIVERS_LICENSE') {
+                dlCount++;
+            }
+        }
+        Assert.areEqual(1, dlCount, 'Case-different party names should collapse to one segment');
+    }
+
+    @IsTest
+    static void shouldMergeAdjacentSegments_WhenBothPartyNamesAreNull() {
+        // A balance sheet often has no named party. Two adjacent BALANCE_SHEET
+        // segments with null party should still merge.
+        List<DocSegment> raw = new List<DocSegment>{
+            new DocSegment('BALANCE_SHEET', null, null, 1, 2),
+            new DocSegment('BALANCE_SHEET', null, null, 3, 4)
+        };
+
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 4, FALLBACK);
+        Test.stopTest();
+
+        Assert.areEqual(1, out.size(), 'Both null parties = same key, should merge');
+        Assert.areEqual('BALANCE_SHEET', out[0].documentType);
+        Assert.areEqual(1, out[0].startPage);
+        Assert.areEqual(4, out[0].endPage);
+    }
+
+    @IsTest
+    static void shouldCarryPartyName_WhenMergingWithBlankPartyOnOneSide() {
+        // First chunk identifies the type but not the name; second chunk identifies both.
+        // The party name from the named side should propagate to the merged segment.
+        List<DocSegment> raw = new List<DocSegment>{
+            new DocSegment('W2', null, null, 1, 1),
+            new DocSegment('W2', null, 'Bill Vance', 2, 2)
+        };
+
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 2, FALLBACK);
+        Test.stopTest();
+
+        DocSegment w2 = findByType(out, 'W2');
+        Assert.isNotNull(w2, 'W2 segment present');
+        Assert.areEqual('Bill Vance', w2.namedParty, 'Named party from second chunk propagates');
+    }
+
     // --- Sorting behavior ------------------------------------------------
 
     @IsTest

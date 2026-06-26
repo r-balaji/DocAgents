@@ -34,18 +34,20 @@ Rules:
 - If two segments touch (the next starts immediately after the previous ends), they MUST be of different types. If you would emit two adjacent segments of the same type, merge them into one.
 - Use 1-based page numbers. start_page is the first page of the segment, end_page is the last page (inclusive).
 - source_institution is REQUIRED for BANK_STATEMENT segments (the issuing bank name as it appears on the document). For all other types, set source_institution to null.
+- named_party is REQUIRED whenever a person or business name is clearly identifiable on the document. Examples: the cardholder on a Driver's License, the taxpayer on a 1040, the employee on a Pay Stub or W-2, the account holder on a Bank Statement, the entity name on Articles of Incorporation or a Business License. If no party can be identified (e.g. a generic balance sheet, a blank cover page), set named_party to null. Return the name exactly as it appears on the document.
 
 OUTPUT FORMAT - return ONLY a strict JSON array, no markdown fences, no prose before or after.
 
 Required fields per item:
 - document_type: one of the allowed type codes above.
 - source_institution: the bank name for BANK_STATEMENT, otherwise null.
+- named_party: the person or business name on the document, or null if none is identifiable.
 - start_page: integer, 1-based.
 - end_page: integer, 1-based, inclusive.
 
 Example output for a 12-page bundle:
 
-[{"document_type":"DRIVERS_LICENSE","source_institution":null,"start_page":1,"end_page":1},{"document_type":"BANK_STATEMENT","source_institution":"Chase","start_page":2,"end_page":6},{"document_type":"W2","source_institution":null,"start_page":7,"end_page":8},{"document_type":"OTHER","source_institution":null,"start_page":9,"end_page":12}]
+[{"document_type":"DRIVERS_LICENSE","source_institution":null,"named_party":"John Smith","start_page":1,"end_page":1},{"document_type":"BANK_STATEMENT","source_institution":"Chase","named_party":"John Smith","start_page":2,"end_page":6},{"document_type":"W2","source_institution":null,"named_party":"John Smith","start_page":7,"end_page":8},{"document_type":"OTHER","source_institution":null,"named_party":null,"start_page":9,"end_page":12}]
 </content>
         <fileDroppingStrategy>{&quot;dropFilesBy&quot;:&quot;LAST_MODIFIED_DATE&quot;,&quot;dropFileStartingWith&quot;:&quot;OLDEST&quot;}</fileDroppingStrategy>
         <inputs>
@@ -58,7 +60,7 @@ Example output for a 12-page bundle:
         <isCitationEnabled>false</isCitationEnabled>
         <primaryModel>sfdc_ai__DefaultGPT5Mini</primaryModel>
         <status>Draft</status>
-        <versionIdentifier>SPIKE_1</versionIdentifier>
+        <versionIdentifier>SPIKE_2</versionIdentifier>
     </templateVersions>
     <type>einstein_gpt__flex</type>
     <visibility>Global</visibility>
