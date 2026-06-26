@@ -135,6 +135,12 @@ private class SplitSaveQueueableTest {
             SplitSaveRequest.buildFileName('DRIVERS_LICENSE', null, 'Jane Doe', 1));
         Assert.areEqual('Other_2.pdf',
             SplitSaveRequest.buildFileName('OTHER', null, null, 2));
+        Assert.areEqual('Other_1.pdf',
+            SplitSaveRequest.buildFileName('OTHER', null, null, 1),
+            'OTHER always carries a numeric suffix, even for the first one');
+        Assert.areEqual('Other_3.pdf',
+            SplitSaveRequest.buildFileName('OTHER', null, 'Lakeside Auto Group', 3),
+            'OTHER ignores party name (AI extraction is noise for unrecognized pages)');
         Assert.areEqual('PersonalTaxReturn1040.pdf',
             SplitSaveRequest.buildFileName('PERSONAL_TAX_RETURN_1040', null, null, 1));
     }

@@ -34,8 +34,20 @@ export function computeChunks(totalPages, chunkSize = 8, overlap = 2) {
 
 /**
  * Build a filesystem-safe filename matching the Apex SplitSaveRequest.buildFileName.
+ *
+ * Two patterns:
+ *  - Known types (BANK_STATEMENT, DRIVERS_LICENSE, ...) — include the source
+ *    institution and named party so the loan officer can identify whose doc this is.
+ *    e.g. BankStatement_Chase_John_Smith.pdf, BankStatement_Chase_John_Smith_2.pdf
+ *  - OTHER (fallback) — strip the party/source entirely and use a clean sequential
+ *    suffix. The AI's party extraction on unrecognized pages is unreliable, so the
+ *    extracted name is more noise than signal.
+ *    e.g. Other_1.pdf, Other_2.pdf
  */
 export function buildFileName(documentType, sourceInstitution, namedParty, index) {
+    if (documentType === 'OTHER') {
+        return `Other_${index || 1}.pdf`;
+    }
     const parts = [toTitleCase(documentType)];
     if (sourceInstitution && sourceInstitution.trim()) {
         parts.push(sanitize(sourceInstitution));
@@ -57,7 +69,13 @@ export function segmentsToSaveRequests(segments) {
     const counts = new Map();
     const requests = [];
     for (const seg of segments) {
-        const key = [seg.documentType, seg.sourceInstitution || '', seg.namedParty || ''].join('|');
+        // OTHER segments share one counter regardless of party/source — every
+        // unrecognized page gets the next Other_N number. For known types we
+        // group by (type, source, party) so two Chase statements for John get
+        // _1 and _2 while a Wells Fargo statement for John starts fresh at _1.
+        const key = seg.documentType === 'OTHER'
+            ? 'OTHER'
+            : [seg.documentType, seg.sourceInstitution || '', seg.namedParty || ''].join('|');
         const nextIndex = (counts.get(key) || 0) + 1;
         counts.set(key, nextIndex);
         requests.push({

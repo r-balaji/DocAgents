@@ -23,15 +23,19 @@ public class SplitSaveRequest {
     /**
      * Build a human-readable, filesystem-safe filename from the AI segment's metadata.
      *
-     * Examples:
-     *   buildFileName('BANK_STATEMENT', 'Bank of America', 'John Smith', 1)
-     *     -> 'BankStatement_BankOfAmerica_John_Smith.pdf'
-     *   buildFileName('DRIVERS_LICENSE', null, 'Jane Doe', 1)
-     *     -> 'DriversLicense_Jane_Doe.pdf'
-     *   buildFileName('OTHER', null, null, 2)
-     *     -> 'Other_2.pdf'
+     * Two patterns:
+     *  - Known types: include source institution + named party so the loan
+     *    officer can tell whose document it is.
+     *      BankStatement_Bank_of_America_John_Smith.pdf
+     *      DriversLicense_Jane_Doe.pdf
+     *  - OTHER (fallback): strip party/source, use clean Other_N numbering.
+     *    The AI's party extraction on unrecognized pages is unreliable noise.
+     *      Other_1.pdf, Other_2.pdf, ...
      */
     public static String buildFileName(String documentType, String sourceInstitution, String namedParty, Integer index) {
+        if ('OTHER'.equals(documentType)) {
+            return 'Other_' + (index == null ? 1 : index) + '.pdf';
+        }
         List<String> parts = new List<String>{ toTitleCase(documentType) };
         if (String.isNotBlank(sourceInstitution)) {
             parts.add(sanitize(sourceInstitution));
