@@ -1,8 +1,10 @@
 /**
  * DTO representing one split PDF the LWC is asking us to save back to the library.
  *
- * The LWC builds these after running pdf-lib in the browser to extract page ranges
- * from the source bundle. base64Content holds the binary PDF for the segment.
+ * The LWC builds these after running pdf-lib in the browser to extract the pages
+ * (which may be non-contiguous) for one detected document instance. base64Content
+ * holds the binary PDF for that document; pages is the absolute page list it
+ * was assembled from (kept for traceability / debugging, not used to re-slice).
  *
  * fileName is built by the LWC (or via buildFileName below) using documentType,
  * sourceInstitution, namedParty, and an index so multiple files of the same kind
@@ -15,8 +17,8 @@ public class SplitSaveRequest {
     public String documentType;
     public String sourceInstitution;
     public String namedParty;
-    public Integer startPage;
-    public Integer endPage;
+    public String instanceLabel;
+    public List<Integer> pages;
 
     public SplitSaveRequest() {}
 

@@ -103,22 +103,22 @@ private class SplitJobServiceTest {
                     'documentType' => 'DRIVERS_LICENSE',
                     'sourceInstitution' => null,
                     'namedParty' => 'John Smith',
-                    'startPage' => 1,
-                    'endPage' => 1
+                    'instanceLabel' => null,
+                    'pages' => new List<Integer>{1}
                 },
                 new Map<String, Object>{
                     'documentType' => 'PASSPORT',
                     'sourceInstitution' => null,
                     'namedParty' => 'John Smith',
-                    'startPage' => 2,
-                    'endPage' => 3
+                    'instanceLabel' => null,
+                    'pages' => new List<Integer>{2, 3}
                 },
                 new Map<String, Object>{
                     'documentType' => 'BANK_STATEMENT',
                     'sourceInstitution' => 'Chase',
                     'namedParty' => 'John Smith',
-                    'startPage' => 4,
-                    'endPage' => 5
+                    'instanceLabel' => 'Chase 2026-04',
+                    'pages' => new List<Integer>{4, 5}
                 }
             };
             Split_Job__c seed = new Split_Job__c(
@@ -186,8 +186,8 @@ private class SplitJobServiceTest {
                 'documentType' => 'W2',
                 'sourceInstitution' => null,
                 'namedParty' => 'Daniela Morales',
-                'startPage' => 2,
-                'endPage' => 2
+                'instanceLabel' => null,
+                'pages' => new List<Integer>{2, 4}
             }
         };
         String json = JSON.serialize(raw);
@@ -199,8 +199,9 @@ private class SplitJobServiceTest {
         Assert.areEqual(1, segments.size());
         Assert.areEqual('W2', segments[0].documentType);
         Assert.areEqual('Daniela Morales', segments[0].namedParty);
-        Assert.areEqual(2, segments[0].startPage);
-        Assert.areEqual(2, segments[0].endPage);
+        Assert.areEqual(2, segments[0].pages.size(), 'Page list round-trips with 2 elements');
+        Assert.areEqual(2, segments[0].pages[0]);
+        Assert.areEqual(4, segments[0].pages[1]);
     }
 
     @IsTest
@@ -230,14 +231,16 @@ private class SplitJobServiceTest {
 
     @IsTest
     static void shouldReplaceSource_WhenSingleFullCoverageNonOtherSegment() {
-        Split_Job__c job = buildJobForReplacementTest(1, 5, '[{"documentType":"BANK_STATEMENT","startPage":1,"endPage":5}]');
+        Split_Job__c job = buildJobForReplacementTest(1, 5,
+            '[{"documentType":"BANK_STATEMENT","pages":[1,2,3,4,5]}]');
         Assert.isTrue(SplitJobService.shouldReplaceSource(job),
             'Single non-OTHER segment covering all pages should replace the source');
     }
 
     @IsTest
     static void shouldNotReplaceSource_WhenSingleSegmentIsOther() {
-        Split_Job__c job = buildJobForReplacementTest(1, 5, '[{"documentType":"OTHER","startPage":1,"endPage":5}]');
+        Split_Job__c job = buildJobForReplacementTest(1, 5,
+            '[{"documentType":"OTHER","pages":[1,2,3,4,5]}]');
         Assert.isFalse(SplitJobService.shouldReplaceSource(job),
             'OTHER means the AI was uncertain — keep the source');
     }
@@ -245,14 +248,15 @@ private class SplitJobServiceTest {
     @IsTest
     static void shouldNotReplaceSource_WhenMultipleSegments() {
         Split_Job__c job = buildJobForReplacementTest(2, 5,
-            '[{"documentType":"BANK_STATEMENT","startPage":1,"endPage":3},{"documentType":"W2","startPage":4,"endPage":5}]');
+            '[{"documentType":"BANK_STATEMENT","pages":[1,2,3]},{"documentType":"W2","pages":[4,5]}]');
         Assert.isFalse(SplitJobService.shouldReplaceSource(job),
             'Multiple documents mean the source is the only consolidated copy — keep it');
     }
 
     @IsTest
     static void shouldNotReplaceSource_WhenSegmentDoesNotCoverAllPages() {
-        Split_Job__c job = buildJobForReplacementTest(1, 5, '[{"documentType":"BANK_STATEMENT","startPage":1,"endPage":3}]');
+        Split_Job__c job = buildJobForReplacementTest(1, 5,
+            '[{"documentType":"BANK_STATEMENT","pages":[1,2,3]}]');
         Assert.isFalse(SplitJobService.shouldReplaceSource(job),
             'Partial coverage means the source has pages the output does not — keep it');
     }

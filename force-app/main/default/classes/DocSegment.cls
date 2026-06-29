@@ -1,43 +1,43 @@
 /**
- * DTO representing one classified page range inside a document bundle.
+ * DTO representing one detected document instance inside a bundle.
  *
- * Produced by the AI vision prompt (one per detected segment) and consumed by
- * SegmentMerger, which coalesces them into the final non-overlapping list.
+ * Produced by the AI vision prompt (one per distinct document instance,
+ * regardless of whether its pages are contiguous or scattered) and consumed
+ * by SegmentMerger and the splitter's save pipeline.
  *
  * Fields:
  *  - documentType: one of the Document_Type__mdt.Type_Code__c values (e.g. BANK_STATEMENT).
  *  - sourceInstitution: optional, only populated for types where
  *    Document_Type__mdt.Capture_Source__c is true (e.g. Bank Statement -> Chase).
- *  - namedParty: optional, the person or business name on the document
- *    (e.g. "John Smith" for a Driver's License, "Vance Electric LLC" for Articles
- *    of Incorporation). Used by SegmentMerger to keep documents of the same type
- *    but different parties separate (e.g. John's DL and Jimmy's DL stay as
- *    two segments even if they appear on adjacent pages).
- *  - startPage / endPage: 1-based, inclusive.
+ *  - namedParty: optional, the person or business name on the document.
+ *  - instanceLabel: optional, distinguishes multiple instances of the same type
+ *    (e.g. "Chase 2026-04" vs "Wells Fargo 2026-04"). Used by the prompt for
+ *    grouping reasoning and by file-naming to disambiguate outputs.
+ *  - pages: 1-based, absolute page numbers belonging to this document. Pages
+ *    may be non-contiguous (e.g. license front on page 1, back on page 10).
+ *    Within an entry, pages are in natural reading order.
  */
 public class DocSegment {
 
     public String documentType;
     public String sourceInstitution;
     public String namedParty;
-    public Integer startPage;
-    public Integer endPage;
+    public String instanceLabel;
+    public List<Integer> pages;
 
-    public DocSegment() {}
-
-    public DocSegment(String documentType, Integer startPage, Integer endPage) {
-        this(documentType, null, null, startPage, endPage);
+    public DocSegment() {
+        this.pages = new List<Integer>();
     }
 
-    public DocSegment(String documentType, String sourceInstitution, Integer startPage, Integer endPage) {
-        this(documentType, sourceInstitution, null, startPage, endPage);
+    public DocSegment(String documentType, List<Integer> pages) {
+        this(documentType, null, null, null, pages);
     }
 
-    public DocSegment(String documentType, String sourceInstitution, String namedParty, Integer startPage, Integer endPage) {
+    public DocSegment(String documentType, String sourceInstitution, String namedParty, String instanceLabel, List<Integer> pages) {
         this.documentType = documentType;
         this.sourceInstitution = sourceInstitution;
         this.namedParty = namedParty;
-        this.startPage = startPage;
-        this.endPage = endPage;
+        this.instanceLabel = instanceLabel;
+        this.pages = pages == null ? new List<Integer>() : pages;
     }
 }

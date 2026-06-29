@@ -251,10 +251,14 @@ public with sharing class SplitJobService {
         String type = (String) only.get('documentType');
         if (String.isBlank(type) || FALLBACK_TYPE.equalsIgnoreCase(type)) return false;
 
-        Integer startPage = (Integer) only.get('startPage');
-        Integer endPage = (Integer) only.get('endPage');
-        if (startPage == null || endPage == null) return false;
-        return startPage == 1 && endPage == (Integer) job.Total_Pages__c;
+        Object pagesObj = only.get('pages');
+        if (!(pagesObj instanceof List<Object>)) return false;
+        List<Object> pages = (List<Object>) pagesObj;
+        Integer totalPages = (Integer) job.Total_Pages__c;
+        if (pages.size() != totalPages) return false;
+        // After SegmentMerger validation, all pages are unique and within [1..totalPages].
+        // size == totalPages therefore implies the segment covers every page.
+        return true;
     }
 
     /**
@@ -376,8 +380,19 @@ public with sharing class SplitJobService {
             s.documentType      = (String) m.get('documentType');
             s.sourceInstitution = (String) m.get('sourceInstitution');
             s.namedParty        = (String) m.get('namedParty');
-            s.startPage         = (Integer) m.get('startPage');
-            s.endPage           = (Integer) m.get('endPage');
+            s.instanceLabel     = (String) m.get('instanceLabel');
+            List<Integer> pages = new List<Integer>();
+            Object pagesObj = m.get('pages');
+            if (pagesObj instanceof List<Object>) {
+                for (Object p : (List<Object>) pagesObj) {
+                    if (p instanceof Integer) {
+                        pages.add((Integer) p);
+                    } else if (p instanceof Decimal) {
+                        pages.add(((Decimal) p).intValue());
+                    }
+                }
+            }
+            s.pages = pages;
             out.add(s);
         }
         return out;

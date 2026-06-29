@@ -1,47 +1,42 @@
 /**
  * Unit tests for SegmentMerger.
  *
- * Pure logic -- no SOQL, DML, or async, so no @TestSetup is needed.
- * Coverage target: 100% (critical pre-LWC merge step in the document splitter).
+ * Pure logic — no SOQL, DML, or async, so no @TestSetup is needed.
+ * With the page-list model the merger is a coverage validator: it sanitizes
+ * inputs, de-duplicates overlapping page claims (first-claimant-wins), and
+ * fills any unclaimed pages with a single OTHER segment.
  */
 @IsTest
 private class SegmentMergerTest {
 
     private static final String FALLBACK = 'OTHER';
 
-    // --- Trivial passthrough ---------------------------------------------
+    // ----- Trivial / empty inputs --------------------------------------------
 
     @IsTest
     static void shouldReturnEmpty_WhenTotalPagesNull() {
         Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(
-            new List<DocSegment>(), null, FALLBACK);
+        List<DocSegment> out = SegmentMerger.mergeSegments(new List<DocSegment>(), null, FALLBACK);
         Test.stopTest();
-
         Assert.areEqual(0, out.size(), 'Null totalPages should produce empty list');
     }
 
     @IsTest
     static void shouldReturnEmpty_WhenTotalPagesZero() {
         Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(
-            new List<DocSegment>(), 0, FALLBACK);
+        List<DocSegment> out = SegmentMerger.mergeSegments(new List<DocSegment>(), 0, FALLBACK);
         Test.stopTest();
-
         Assert.areEqual(0, out.size(), 'Zero totalPages should produce empty list');
     }
 
     @IsTest
     static void shouldFillEntireBundleWithFallback_WhenNoSegments() {
         Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(
-            new List<DocSegment>(), 10, FALLBACK);
+        List<DocSegment> out = SegmentMerger.mergeSegments(new List<DocSegment>(), 10, FALLBACK);
         Test.stopTest();
-
-        Assert.areEqual(1, out.size(), 'Empty segments should produce one fallback segment');
-        Assert.areEqual(FALLBACK, out[0].documentType, 'Type should be fallback');
-        Assert.areEqual(1, out[0].startPage, 'Should start at page 1');
-        Assert.areEqual(10, out[0].endPage, 'Should end at totalPages');
+        Assert.areEqual(1, out.size(), 'Empty input → one fallback segment');
+        Assert.areEqual(FALLBACK, out[0].documentType);
+        Assert.areEqual(10, out[0].pages.size(), 'Fallback should claim every page');
     }
 
     @IsTest
@@ -49,394 +44,227 @@ private class SegmentMergerTest {
         Test.startTest();
         List<DocSegment> out = SegmentMerger.mergeSegments(null, 5, FALLBACK);
         Test.stopTest();
-
-        Assert.areEqual(1, out.size(), 'Null raw segments should produce one fallback segment');
-        Assert.areEqual(FALLBACK, out[0].documentType, 'Type should be fallback');
-        Assert.areEqual(1, out[0].startPage, 'Should start at page 1');
-        Assert.areEqual(5, out[0].endPage, 'Should end at totalPages');
+        Assert.areEqual(1, out.size(), 'Null input → one fallback segment');
+        Assert.areEqual(FALLBACK, out[0].documentType);
+        Assert.areEqual(5, out[0].pages.size());
     }
+
+    // ----- Happy path --------------------------------------------------------
 
     @IsTest
     static void shouldPassThroughSingleSegment_WhenItCoversWholeBundle() {
         List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('PASSPORT', 1, 5)
+            buildSegment('PASSPORT', null, null, null, new List<Integer>{1, 2, 3, 4, 5})
         };
-
         Test.startTest();
         List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
         Test.stopTest();
-
-        Assert.areEqual(1, out.size(), 'Single full-coverage segment should pass through');
-        Assert.areEqual('PASSPORT', out[0].documentType, 'Type should be preserved');
-        Assert.areEqual(1, out[0].startPage, 'Start should be 1');
-        Assert.areEqual(5, out[0].endPage, 'End should be 5');
+        Assert.areEqual(1, out.size(), 'Single full-coverage segment passes through');
+        Assert.areEqual('PASSPORT', out[0].documentType);
+        Assert.areEqual(5, out[0].pages.size());
     }
 
-    // --- Merging same-type -----------------------------------------------
+    @IsTest
+    static void shouldPreserveNonContiguousPages_WhenDocumentSpansScatteredPages() {
+        // Driver's license front on page 1, back on page 10 — non-contiguous.
+        List<DocSegment> raw = new List<DocSegment>{
+            buildSegment('DRIVERS_LICENSE', null, 'John Smith', 'CA DL', new List<Integer>{1, 10}),
+            buildSegment('BANK_STATEMENT', 'Chase', 'John Smith', 'Chase 2026-04', new List<Integer>{3, 4, 5}),
+            buildSegment('W2', null, 'John Smith', null, new List<Integer>{6, 7, 8})
+        };
+
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 10, FALLBACK);
+        Test.stopTest();
+
+        DocSegment license = findByType(out, 'DRIVERS_LICENSE');
+        Assert.isNotNull(license);
+        Assert.areEqual(2, license.pages.size(), 'License has two scattered pages');
+        Assert.isTrue(license.pages.contains(1) && license.pages.contains(10),
+            'Both license pages preserved');
+        Assert.areEqual(1, countByType(out, 'OTHER'), 'Pages 2 and 9 become one OTHER segment');
+    }
 
     @IsTest
-    static void shouldMergeAdjacentSegments_WhenSameType() {
-        // A 1-3, A 4-6 -> A 1-6 (perfectly adjacent, no overlap).
+    static void shouldKeepTwoInstancesSeparate_WhenSameTypeAppearsMultipleTimes() {
+        // Two distinct bank statements from different banks for the same person.
         List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('W2', 1, 3),
-            new DocSegment('W2', 4, 6)
+            buildSegment('BANK_STATEMENT', 'Chase', 'John Smith', 'Chase 2026-04', new List<Integer>{1, 2, 3}),
+            buildSegment('BANK_STATEMENT', 'Wells Fargo', 'John Smith', 'WF 2026-04', new List<Integer>{4, 5, 6})
         };
 
         Test.startTest();
         List<DocSegment> out = SegmentMerger.mergeSegments(raw, 6, FALLBACK);
         Test.stopTest();
 
-        Assert.areEqual(1, out.size(), 'Two adjacent same-type segments should merge into one');
-        Assert.areEqual('W2', out[0].documentType, 'Type should be W2');
-        Assert.areEqual(1, out[0].startPage, 'Start should be 1');
-        Assert.areEqual(6, out[0].endPage, 'End should be 6');
+        Assert.areEqual(2, countByType(out, 'BANK_STATEMENT'),
+            'Two distinct statements must remain as two separate segments');
+        Assert.areEqual(0, countByType(out, 'OTHER'), 'No unclaimed pages → no fallback');
     }
 
-    @IsTest
-    static void shouldMergeOverlappingSegments_WhenSameType() {
-        // Bank Statement 7-9, Bank Statement 8-10 -> Bank Statement 7-10 (overlap absorbed).
-        List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('BANK_STATEMENT', 7, 9),
-            new DocSegment('BANK_STATEMENT', 8, 10)
-        };
-
-        Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 10, FALLBACK);
-        Test.stopTest();
-
-        DocSegment realDoc = findByType(out, 'BANK_STATEMENT');
-        Assert.isNotNull(realDoc, 'Bank Statement segment should be present');
-        Assert.areEqual(7, realDoc.startPage, 'Merged start should be 7');
-        Assert.areEqual(10, realDoc.endPage, 'Merged end should be 10');
-    }
+    // ----- De-duplication / overlap ------------------------------------------
 
     @IsTest
-    static void shouldHealChunkSeam_WhenSameTypeStraddlesBoundary() {
-        // The acceptance criterion from spec Sec11: a doc spans pages 7-10,
-        // chunk boundary at 8, both chunks report the same doc -> must collapse.
-        // Chunk A: pages 1-8, says doc starts at 7 -> segment 7-8
-        // Chunk B: pages 7-14, says doc spans 7-10 (because of overlap) -> segment 7-10
+    static void shouldDropDuplicateClaim_WhenTwoSegmentsClaimSamePage() {
+        // Both segments claim page 3; first claimant wins.
         List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('PAY_STUB', 7, 8),
-            new DocSegment('PAY_STUB', 7, 10)
-        };
-
-        Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 14, FALLBACK);
-        Test.stopTest();
-
-        DocSegment realDoc = findByType(out, 'PAY_STUB');
-        Assert.isNotNull(realDoc, 'Pay Stub segment should be present');
-        Assert.areEqual(7, realDoc.startPage, 'Healed segment should start at 7');
-        Assert.areEqual(10, realDoc.endPage, 'Healed segment should end at 10 (no fragment at seam)');
-
-        Integer payStubCount = 0;
-        for (DocSegment s : out) {
-            if (s.documentType == 'PAY_STUB') {
-                payStubCount++;
-            }
-        }
-        Assert.areEqual(1, payStubCount, 'Seam should heal to exactly one Pay Stub segment');
-    }
-
-    @IsTest
-    static void shouldCarrySourceInstitution_WhenMergingSameType() {
-        // First chunk doesn't know the source; second chunk does. The merger should propagate.
-        List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('BANK_STATEMENT', null, 1, 3),
-            new DocSegment('BANK_STATEMENT', 'Chase', 3, 5)
+            buildSegment('PAY_STUB', null, 'Alice', null, new List<Integer>{1, 2, 3}),
+            buildSegment('W2', null, 'Alice', null, new List<Integer>{3, 4, 5})
         };
 
         Test.startTest();
         List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
         Test.stopTest();
 
-        DocSegment realDoc = findByType(out, 'BANK_STATEMENT');
-        Assert.isNotNull(realDoc, 'Bank Statement segment should be present');
-        Assert.areEqual('Chase', realDoc.sourceInstitution,
-            'Source institution from the second chunk should be carried forward');
-    }
-
-    // --- Splitting conflicting overlaps ----------------------------------
-
-    @IsTest
-    static void shouldSplitAtMidpoint_WhenDifferentTypesOverlap() {
-        // PASSPORT 1-6, DRIVERS_LICENSE 4-9 -> overlap is pages 4-6 (start=4, end=6),
-        // midpoint = 4 + (6-4)/2 = 5. So PASSPORT keeps 1-5, DRIVERS_LICENSE takes 6-9.
-        List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('PASSPORT', 1, 6),
-            new DocSegment('DRIVERS_LICENSE', 4, 9)
-        };
-
-        Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 9, FALLBACK);
-        Test.stopTest();
-
-        DocSegment passport = findByType(out, 'PASSPORT');
-        DocSegment license = findByType(out, 'DRIVERS_LICENSE');
-        Assert.isNotNull(passport, 'PASSPORT segment should remain');
-        Assert.isNotNull(license, 'DRIVERS_LICENSE segment should remain');
-        Assert.areEqual(1, passport.startPage, 'PASSPORT should still start at 1');
-        Assert.areEqual(5, passport.endPage, 'PASSPORT should end at midpoint (5)');
-        Assert.areEqual(6, license.startPage, 'DRIVERS_LICENSE should start at midpoint+1 (6)');
-        Assert.areEqual(9, license.endPage, 'DRIVERS_LICENSE should end at 9');
+        DocSegment payStub = findByType(out, 'PAY_STUB');
+        DocSegment w2 = findByType(out, 'W2');
+        Assert.areEqual(3, payStub.pages.size(), 'Pay stub keeps all three of its claimed pages');
+        Assert.isTrue(payStub.pages.contains(3));
+        Assert.areEqual(2, w2.pages.size(), 'W2 loses page 3 to first claimant');
+        Assert.isFalse(w2.pages.contains(3));
     }
 
     @IsTest
-    static void shouldDropContainedSegment_WhenFullyInsidePrevious() {
-        // PASSPORT 1-10 (large), W2 4-6 (fully contained) -- the larger first segment wins.
-        // Note: sort sends PASSPORT first because longer-segment-first breaks tie at startPage=1.
+    static void shouldDropSegmentEntirely_WhenAllItsPagesAreAlreadyClaimed() {
         List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('PASSPORT', 1, 10),
-            new DocSegment('W2', 4, 6)
-        };
-
-        Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 10, FALLBACK);
-        Test.stopTest();
-
-        Assert.areEqual(1, out.size(), 'Fully-contained different-type segment should be dropped');
-        Assert.areEqual('PASSPORT', out[0].documentType, 'Containing segment should remain');
-        Assert.areEqual(1, out[0].startPage, 'Start preserved');
-        Assert.areEqual(10, out[0].endPage, 'End preserved');
-    }
-
-    // --- Gap-filling with fallback ---------------------------------------
-
-    @IsTest
-    static void shouldFillGapBetweenSegments_WithFallback() {
-        // PASSPORT 1-3, then gap 4-5, then W2 6-8.
-        List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('PASSPORT', 1, 3),
-            new DocSegment('W2', 6, 8)
-        };
-
-        Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 8, FALLBACK);
-        Test.stopTest();
-
-        Assert.areEqual(3, out.size(), 'Should produce [PASSPORT, OTHER gap, W2]');
-        Assert.areEqual('PASSPORT', out[0].documentType, 'First segment is PASSPORT');
-        Assert.areEqual(FALLBACK, out[1].documentType, 'Middle segment is fallback');
-        Assert.areEqual(4, out[1].startPage, 'Gap starts at 4');
-        Assert.areEqual(5, out[1].endPage, 'Gap ends at 5');
-        Assert.areEqual('W2', out[2].documentType, 'Third segment is W2');
-    }
-
-    @IsTest
-    static void shouldFillLeadingGap_WithFallback() {
-        // No segment for pages 1-4; first real segment starts at page 5.
-        List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('PASSPORT', 5, 7)
-        };
-
-        Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 7, FALLBACK);
-        Test.stopTest();
-
-        Assert.areEqual(2, out.size(), 'Should produce [OTHER 1-4, PASSPORT 5-7]');
-        Assert.areEqual(FALLBACK, out[0].documentType, 'Leading gap is fallback');
-        Assert.areEqual(1, out[0].startPage, 'Leading gap starts at 1');
-        Assert.areEqual(4, out[0].endPage, 'Leading gap ends at 4');
-        Assert.areEqual('PASSPORT', out[1].documentType, 'Then PASSPORT');
-    }
-
-    @IsTest
-    static void shouldFillTrailingGap_WithFallback() {
-        // PASSPORT covers 1-5; bundle has 8 pages so 6-8 needs a fallback.
-        List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('PASSPORT', 1, 5)
-        };
-
-        Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 8, FALLBACK);
-        Test.stopTest();
-
-        Assert.areEqual(2, out.size(), 'Should produce [PASSPORT 1-5, OTHER 6-8]');
-        Assert.areEqual('PASSPORT', out[0].documentType, 'First is PASSPORT');
-        Assert.areEqual(FALLBACK, out[1].documentType, 'Trailing gap is fallback');
-        Assert.areEqual(6, out[1].startPage, 'Trailing gap starts at 6');
-        Assert.areEqual(8, out[1].endPage, 'Trailing gap ends at 8 (totalPages)');
-    }
-
-    // --- Sanitizing bad inputs -------------------------------------------
-
-    @IsTest
-    static void shouldIgnoreInvalidSegments_WhenBlankTypeOrNullPages() {
-        List<DocSegment> raw = new List<DocSegment>{
-            null,
-            new DocSegment('', 1, 3),
-            new DocSegment(null, 1, 3),
-            new DocSegment('PASSPORT', null, 3),
-            new DocSegment('PASSPORT', 1, null),
-            new DocSegment('PASSPORT', 1, 3)
+            buildSegment('PASSPORT', null, null, null, new List<Integer>{1, 2, 3}),
+            buildSegment('W2', null, null, null, new List<Integer>{1, 2, 3})   // total dupe
         };
 
         Test.startTest();
         List<DocSegment> out = SegmentMerger.mergeSegments(raw, 3, FALLBACK);
         Test.stopTest();
 
-        Assert.areEqual(1, out.size(), 'Only the one valid segment should survive');
-        Assert.areEqual('PASSPORT', out[0].documentType, 'Valid segment preserved');
-        Assert.areEqual(1, out[0].startPage, 'Valid start preserved');
-        Assert.areEqual(3, out[0].endPage, 'Valid end preserved');
+        Assert.areEqual(1, out.size(), 'Fully-duplicated segment is dropped');
+        Assert.areEqual('PASSPORT', out[0].documentType, 'First claimant remains');
     }
 
+    // ----- Gap filling -------------------------------------------------------
+
     @IsTest
-    static void shouldClampOutOfBoundsPages_WhenStartBeforeOneOrEndAfterTotal() {
-        // startPage 0 -> clamped to 1; endPage 100 -> clamped to totalPages (5).
+    static void shouldFillGapBetweenSegments_WithFallback() {
+        // Pages claimed: 1-3 and 6-8; pages 4-5 unclaimed.
         List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('PASSPORT', 0, 100)
+            buildSegment('PASSPORT', null, null, null, new List<Integer>{1, 2, 3}),
+            buildSegment('W2', null, null, null, new List<Integer>{6, 7, 8})
         };
 
         Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 8, FALLBACK);
         Test.stopTest();
 
-        Assert.areEqual(1, out.size(), 'Should produce one clamped segment');
-        Assert.areEqual('PASSPORT', out[0].documentType, 'Type preserved');
-        Assert.areEqual(1, out[0].startPage, 'Start clamped to 1');
-        Assert.areEqual(5, out[0].endPage, 'End clamped to totalPages');
+        DocSegment other = findByType(out, FALLBACK);
+        Assert.isNotNull(other);
+        Assert.areEqual(2, other.pages.size(), 'Two unclaimed pages → one OTHER segment');
+        Assert.isTrue(other.pages.contains(4));
+        Assert.isTrue(other.pages.contains(5));
     }
 
     @IsTest
-    static void shouldDropSegmentEntirely_WhenAllPagesOutOfBounds() {
-        // Segment is 100-200 but totalPages is 5 -- entire range out of bounds, drop it.
+    static void shouldFillLeadingGap_WithFallback() {
         List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('PASSPORT', 100, 200)
+            buildSegment('PASSPORT', null, null, null, new List<Integer>{5, 6, 7})
         };
-
         Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 7, FALLBACK);
         Test.stopTest();
-
-        Assert.areEqual(1, out.size(), 'Should be one fallback segment for the whole bundle');
-        Assert.areEqual(FALLBACK, out[0].documentType, 'Type should be fallback');
-        Assert.areEqual(1, out[0].startPage, 'Start at 1');
-        Assert.areEqual(5, out[0].endPage, 'End at totalPages');
+        DocSegment other = findByType(out, FALLBACK);
+        Assert.isNotNull(other);
+        Assert.areEqual(4, other.pages.size(), 'Pages 1-4 become OTHER');
     }
 
-    // ----- Party-aware merging -----------------------------------------------
-
     @IsTest
-    static void shouldNotMergeAdjacentSegments_WhenDifferentParty() {
-        // John's DL on page 4 + Jimmy's DL on page 5 - adjacent, same type, but
-        // different parties. Must stay as two separate segments.
+    static void shouldFillTrailingGap_WithFallback() {
         List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('DRIVERS_LICENSE', null, 'John Smith', 4, 4),
-            new DocSegment('DRIVERS_LICENSE', null, 'Jimmy Smith', 5, 5)
+            buildSegment('PASSPORT', null, null, null, new List<Integer>{1, 2, 3, 4, 5})
         };
-
         Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 8, FALLBACK);
         Test.stopTest();
-
-        // Expect: [OTHER 1-3, DL John 4-4, DL Jimmy 5-5] = 3 segments
-        Assert.areEqual(3, out.size(), 'Adjacent same-type different-party should NOT merge');
-        Assert.areEqual('John Smith', out[1].namedParty, 'Second segment is John');
-        Assert.areEqual('Jimmy Smith', out[2].namedParty, 'Third segment is Jimmy');
+        DocSegment other = findByType(out, FALLBACK);
+        Assert.isNotNull(other);
+        Assert.areEqual(3, other.pages.size(), 'Pages 6-8 become OTHER');
     }
 
     @IsTest
-    static void shouldMergeAdjacentSegments_WhenSameTypeSameParty() {
-        // Front + back of John's DL on adjacent pages should merge into one segment.
+    static void shouldLumpAllOrphansIntoOneOtherSegment_WhenGapsAreNonContiguous() {
+        // Unrecognized pages 2, 5, 9 should all land in ONE OTHER segment, not three.
         List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('DRIVERS_LICENSE', null, 'John Smith', 4, 4),
-            new DocSegment('DRIVERS_LICENSE', null, 'John Smith', 5, 5)
-        };
-
-        Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
-        Test.stopTest();
-
-        DocSegment dl = findByType(out, 'DRIVERS_LICENSE');
-        Assert.isNotNull(dl, 'Driver License segment should be present');
-        Assert.areEqual(4, dl.startPage, 'Merged start should be 4');
-        Assert.areEqual(5, dl.endPage, 'Merged end should be 5');
-        Assert.areEqual('John Smith', dl.namedParty, 'Party preserved');
-    }
-
-    @IsTest
-    static void shouldMergeAdjacentSegments_WhenSamePartyDespiteCaseDifference() {
-        // The AI may return "John Smith" on one chunk and "JOHN SMITH" on the next.
-        // The merger normalizes for comparison so they collapse to one segment.
-        List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('DRIVERS_LICENSE', null, 'John Smith', 4, 4),
-            new DocSegment('DRIVERS_LICENSE', null, 'JOHN SMITH', 5, 5)
-        };
-
-        Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
-        Test.stopTest();
-
-        Integer dlCount = 0;
-        for (DocSegment s : out) {
-            if (s.documentType == 'DRIVERS_LICENSE') {
-                dlCount++;
-            }
-        }
-        Assert.areEqual(1, dlCount, 'Case-different party names should collapse to one segment');
-    }
-
-    @IsTest
-    static void shouldMergeAdjacentSegments_WhenBothPartyNamesAreNull() {
-        // A balance sheet often has no named party. Two adjacent BALANCE_SHEET
-        // segments with null party should still merge.
-        List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('BALANCE_SHEET', null, null, 1, 2),
-            new DocSegment('BALANCE_SHEET', null, null, 3, 4)
-        };
-
-        Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 4, FALLBACK);
-        Test.stopTest();
-
-        Assert.areEqual(1, out.size(), 'Both null parties = same key, should merge');
-        Assert.areEqual('BALANCE_SHEET', out[0].documentType);
-        Assert.areEqual(1, out[0].startPage);
-        Assert.areEqual(4, out[0].endPage);
-    }
-
-    @IsTest
-    static void shouldCarryPartyName_WhenMergingWithBlankPartyOnOneSide() {
-        // First chunk identifies the type but not the name; second chunk identifies both.
-        // The party name from the named side should propagate to the merged segment.
-        List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('W2', null, null, 1, 1),
-            new DocSegment('W2', null, 'Bill Vance', 2, 2)
-        };
-
-        Test.startTest();
-        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 2, FALLBACK);
-        Test.stopTest();
-
-        DocSegment w2 = findByType(out, 'W2');
-        Assert.isNotNull(w2, 'W2 segment present');
-        Assert.areEqual('Bill Vance', w2.namedParty, 'Named party from second chunk propagates');
-    }
-
-    // --- Sorting behavior ------------------------------------------------
-
-    @IsTest
-    static void shouldSortByStartPage_WhenInputUnordered() {
-        // Input given in reverse order -- output must be sorted ascending.
-        List<DocSegment> raw = new List<DocSegment>{
-            new DocSegment('W2', 7, 9),
-            new DocSegment('PASSPORT', 1, 3),
-            new DocSegment('PAY_STUB', 4, 6)
+            buildSegment('PASSPORT', null, null, null, new List<Integer>{1}),
+            buildSegment('W2', null, null, null, new List<Integer>{3, 4}),
+            buildSegment('PAY_STUB', null, null, null, new List<Integer>{6, 7, 8})
         };
 
         Test.startTest();
         List<DocSegment> out = SegmentMerger.mergeSegments(raw, 9, FALLBACK);
         Test.stopTest();
 
-        Assert.areEqual(3, out.size(), 'Three real segments, contiguous coverage, no gaps');
-        Assert.areEqual('PASSPORT', out[0].documentType, 'First by startPage is PASSPORT');
-        Assert.areEqual('PAY_STUB', out[1].documentType, 'Second is PAY_STUB');
-        Assert.areEqual('W2', out[2].documentType, 'Third is W2');
+        Assert.areEqual(1, countByType(out, FALLBACK),
+            'All orphan pages (2, 5, 9) belong in ONE OTHER segment');
+        DocSegment other = findByType(out, FALLBACK);
+        Assert.areEqual(3, other.pages.size());
     }
 
-    // --- Helper ----------------------------------------------------------
+    // ----- Sanitizing bad inputs ---------------------------------------------
+
+    @IsTest
+    static void shouldIgnoreInvalidSegments_WhenBlankTypeOrEmptyPages() {
+        List<DocSegment> raw = new List<DocSegment>{
+            null,
+            buildSegment('', null, null, null, new List<Integer>{1}),
+            buildSegment(null, null, null, null, new List<Integer>{1}),
+            buildSegment('PASSPORT', null, null, null, null),
+            buildSegment('PASSPORT', null, null, null, new List<Integer>()),
+            buildSegment('PASSPORT', null, null, null, new List<Integer>{1, 2, 3})
+        };
+
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 3, FALLBACK);
+        Test.stopTest();
+
+        Assert.areEqual(1, out.size(), 'Only the one valid segment survives');
+        Assert.areEqual('PASSPORT', out[0].documentType);
+        Assert.areEqual(3, out[0].pages.size());
+    }
+
+    @IsTest
+    static void shouldDropOutOfBoundsPages_WhenAboveTotalPagesOrBelowOne() {
+        List<DocSegment> raw = new List<DocSegment>{
+            buildSegment('PASSPORT', null, null, null, new List<Integer>{0, 1, 2, 100})
+        };
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
+        Test.stopTest();
+        DocSegment passport = findByType(out, 'PASSPORT');
+        Assert.areEqual(2, passport.pages.size(), 'Out-of-bounds pages 0 and 100 dropped');
+        Assert.isTrue(passport.pages.contains(1));
+        Assert.isTrue(passport.pages.contains(2));
+    }
+
+    @IsTest
+    static void shouldDropSegmentEntirely_WhenAllPagesOutOfBounds() {
+        List<DocSegment> raw = new List<DocSegment>{
+            buildSegment('PASSPORT', null, null, null, new List<Integer>{100, 200, 300})
+        };
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 5, FALLBACK);
+        Test.stopTest();
+        Assert.areEqual(1, out.size(), 'No valid segments → only the fallback OTHER for full bundle');
+        Assert.areEqual(FALLBACK, out[0].documentType);
+        Assert.areEqual(5, out[0].pages.size());
+    }
+
+    // ----- Helpers -----------------------------------------------------------
+
+    private static DocSegment buildSegment(String type, String source, String party, String label, List<Integer> pages) {
+        DocSegment s = new DocSegment();
+        s.documentType = type;
+        s.sourceInstitution = source;
+        s.namedParty = party;
+        s.instanceLabel = label;
+        s.pages = pages;
+        return s;
+    }
 
     private static DocSegment findByType(List<DocSegment> segments, String type) {
         for (DocSegment s : segments) {
@@ -445,5 +273,13 @@ private class SegmentMergerTest {
             }
         }
         return null;
+    }
+
+    private static Integer countByType(List<DocSegment> segments, String type) {
+        Integer count = 0;
+        for (DocSegment s : segments) {
+            if (s.documentType == type) count++;
+        }
+        return count;
     }
 }

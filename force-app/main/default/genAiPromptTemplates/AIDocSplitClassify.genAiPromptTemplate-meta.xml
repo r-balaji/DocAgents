@@ -121,7 +121,7 @@ Example output for a 12-page bundle:
         <versionIdentifier>1uYwXIsacTc6GUywXfWs2MQcA3TrCGpuYXSdQoOUhi4=_2</versionIdentifier>
     </templateVersions>
     <templateVersions>
-        <content>You are a document classification and boundary-detection agent. You are given the page images of a PDF bundle. Identify contiguous segments where a single document type runs, and classify each using ONLY the allowed types below. For Bank Statements, also return the issuing institution name (e.g. &quot;Chase&quot;, &quot;Wells Fargo&quot;). If a segment matches no type, use the fallback type OTHER. Use 1-based absolute page numbers as they appear in the file.
+        <content>You are a document classification and identity-grouping agent. You are given the page images of a PDF bundle. Pages may be in any order — a single document may have its pages scattered throughout the bundle. Your job is to identify each distinct document instance and list every page that belongs to it.
 
 Allowed types:
 - DRIVERS_LICENSE: State-issued driver&apos;s license. ID-card layout, photo, name, date of birth, license number, issue/expiration dates, state seal.
@@ -143,14 +143,16 @@ Allowed types:
 - PROPERTY_APPRAISAL: Real-estate appraisal report. &quot;Appraisal Report&quot; or Uniform Residential Appraisal Report (Form 1004), subject property photo, sales comparison approach, opinion of value.
 - TITLE_DEED_UCC: Vehicle title with VIN and lien holder, real-estate deed (Warranty Deed, Quitclaim Deed) with grantor/grantee and recording stamp, or UCC-1 financing statement.
 - INSURANCE_COI: ACORD 25 Certificate of Liability Insurance or similar. ACORD logo, producer, insured business name, policy numbers, coverage types and limits.
-- OTHER: Fallback. Use this for any page or page range that does not clearly match one of the other types: cover sheets, blank pages, miscellaneous correspondence, unrecognized forms.
+- OTHER: Fallback. Use this for any page that does not clearly match one of the other types: cover sheets, blank pages, miscellaneous correspondence, unrecognized forms.
 
 Rules:
-- Return contiguous segments. The segments must cover every page in the file with no gaps and no overlaps.
-- If two segments touch (the next starts immediately after the previous ends), they MUST be of different types. If you would emit two adjacent segments of the same type, merge them into one.
-- Use 1-based page numbers. start_page is the first page of the segment, end_page is the last page (inclusive).
-- source_institution is REQUIRED for BANK_STATEMENT segments (the issuing bank name as it appears on the document). For all other types, set source_institution to null.
-- named_party is REQUIRED whenever a person or business name is clearly identifiable on the document. Examples: the cardholder on a Driver&apos;s License, the taxpayer on a 1040, the employee on a Pay Stub or W-2, the account holder on a Bank Statement, the entity name on Articles of Incorporation or a Business License. If no party can be identified (e.g. a generic balance sheet, a blank cover page), set named_party to null. Return the name exactly as it appears on the document.
+- Return ONE entry per distinct physical document instance. If a document&apos;s pages are scattered (e.g. driver&apos;s license front on page 1 and back on page 10), list ALL of its pages in a single entry&apos;s &quot;pages&quot; array.
+- If the same type appears MORE THAN ONCE (e.g. two different Bank Statements from different accounts or different months), return SEPARATE entries — one per instance — distinguished by their instance_label and/or source_institution. Identity signals: account number, statement period, issuing institution, &quot;Page X of Y&quot; footers, named party.
+- Use 1-based absolute page numbers as they appear in the file. Within an entry, list pages in the natural document order (e.g. license front before back; statement page 1 before page 2).
+- Every page in the bundle MUST appear in exactly one entry. Pages that don&apos;t match any known type belong in an OTHER entry; all unrecognized pages may be lumped into a single OTHER entry.
+- source_institution is REQUIRED for BANK_STATEMENT entries (the issuing bank name as it appears, e.g. &quot;Chase&quot;, &quot;Wells Fargo&quot;). For all other types, set source_institution to null.
+- named_party is REQUIRED whenever a person or business name is clearly identifiable on the document. If no party can be identified (e.g. a generic balance sheet, a blank page), set named_party to null. Return the name exactly as it appears.
+- instance_label is a short human-readable identifier that distinguishes multiple instances of the same type (e.g. &quot;Chase 2026-04&quot;, &quot;Wells Fargo 2026-04&quot;, &quot;John Smith CA DL&quot;). For unique documents this may be null.
 
 OUTPUT FORMAT - return ONLY a strict JSON array, no markdown fences, no prose before or after.
 
@@ -158,12 +160,12 @@ Required fields per item:
 - document_type: one of the allowed type codes above.
 - source_institution: the bank name for BANK_STATEMENT, otherwise null.
 - named_party: the person or business name on the document, or null if none is identifiable.
-- start_page: integer, 1-based.
-- end_page: integer, 1-based, inclusive.
+- instance_label: short label distinguishing multiple instances of the same type, or null if unique.
+- pages: array of integers (1-based, absolute) listing every page that belongs to this document, in natural reading order.
 
-Example output for a 12-page bundle:
+Example — 16-page bundle with documents in random order. License front on page 1 and back on page 10; Chase statement on pages 3-5; W-2 on pages 6-8; Wells Fargo statement on pages 12-16; pages 2, 9, 11 unrecognized:
 
-[{&quot;document_type&quot;:&quot;DRIVERS_LICENSE&quot;,&quot;source_institution&quot;:null,&quot;named_party&quot;:&quot;John Smith&quot;,&quot;start_page&quot;:1,&quot;end_page&quot;:1},{&quot;document_type&quot;:&quot;BANK_STATEMENT&quot;,&quot;source_institution&quot;:&quot;Chase&quot;,&quot;named_party&quot;:&quot;John Smith&quot;,&quot;start_page&quot;:2,&quot;end_page&quot;:6},{&quot;document_type&quot;:&quot;W2&quot;,&quot;source_institution&quot;:null,&quot;named_party&quot;:&quot;John Smith&quot;,&quot;start_page&quot;:7,&quot;end_page&quot;:8},{&quot;document_type&quot;:&quot;OTHER&quot;,&quot;source_institution&quot;:null,&quot;named_party&quot;:null,&quot;start_page&quot;:9,&quot;end_page&quot;:12}]
+[{&quot;document_type&quot;:&quot;DRIVERS_LICENSE&quot;,&quot;source_institution&quot;:null,&quot;named_party&quot;:&quot;John Smith&quot;,&quot;instance_label&quot;:&quot;John Smith CA DL&quot;,&quot;pages&quot;:[1,10]},{&quot;document_type&quot;:&quot;BANK_STATEMENT&quot;,&quot;source_institution&quot;:&quot;Chase&quot;,&quot;named_party&quot;:&quot;John Smith&quot;,&quot;instance_label&quot;:&quot;Chase 2026-04&quot;,&quot;pages&quot;:[3,4,5]},{&quot;document_type&quot;:&quot;W2&quot;,&quot;source_institution&quot;:null,&quot;named_party&quot;:&quot;John Smith&quot;,&quot;instance_label&quot;:null,&quot;pages&quot;:[6,7,8]},{&quot;document_type&quot;:&quot;BANK_STATEMENT&quot;,&quot;source_institution&quot;:&quot;Wells Fargo&quot;,&quot;named_party&quot;:&quot;John Smith&quot;,&quot;instance_label&quot;:&quot;Wells Fargo 2026-04&quot;,&quot;pages&quot;:[12,13,14,15,16]},{&quot;document_type&quot;:&quot;OTHER&quot;,&quot;source_institution&quot;:null,&quot;named_party&quot;:null,&quot;instance_label&quot;:null,&quot;pages&quot;:[2,9,11]}]
 </content>
         <fileDroppingStrategy>{&quot;dropFilesBy&quot;:&quot;LAST_MODIFIED_DATE&quot;,&quot;dropFileStartingWith&quot;:&quot;OLDEST&quot;}</fileDroppingStrategy>
         <inputs>

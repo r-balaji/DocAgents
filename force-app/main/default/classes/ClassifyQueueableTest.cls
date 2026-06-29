@@ -70,8 +70,8 @@ private class ClassifyQueueableTest {
     @IsTest
     static void shouldParseAndShift_WhenPromptReturnsValidJson() {
         ClassifyQueueable.testStubResponse =
-            '[{"document_type":"DRIVERS_LICENSE","source_institution":null,"named_party":"John Smith","start_page":1,"end_page":1},'
-            + '{"document_type":"BANK_STATEMENT","source_institution":"Chase","named_party":"John Smith","start_page":2,"end_page":3}]';
+            '[{"document_type":"DRIVERS_LICENSE","source_institution":null,"named_party":"John Smith","instance_label":"John CA DL","pages":[1,3]},'
+            + '{"document_type":"BANK_STATEMENT","source_institution":"Chase","named_party":"John Smith","instance_label":"Chase 2026-04","pages":[2]}]';
 
         Id jobId;
         Test.startTest();
@@ -91,14 +91,19 @@ private class ClassifyQueueableTest {
         Map<String, Object> first = (Map<String, Object>) accumulator[0];
         Assert.areEqual('DRIVERS_LICENSE', (String) first.get('documentType'));
         Assert.areEqual('John Smith', (String) first.get('namedParty'));
-        Assert.areEqual(5, (Integer) first.get('startPage'), 'chunk-local 1 + offset (5-1) = 5');
-        Assert.areEqual(5, (Integer) first.get('endPage'), 'chunk-local 1 + offset (5-1) = 5');
+        Assert.areEqual('John CA DL', (String) first.get('instanceLabel'));
+        List<Object> firstPages = (List<Object>) first.get('pages');
+        Assert.areEqual(2, firstPages.size(), 'License has two pages [1, 3]');
+        // Offset=5 → shift=4 → chunk-local 1 → 5, chunk-local 3 → 7
+        Assert.areEqual(5, (Integer) firstPages[0]);
+        Assert.areEqual(7, (Integer) firstPages[1]);
 
         Map<String, Object> second = (Map<String, Object>) accumulator[1];
         Assert.areEqual('BANK_STATEMENT', (String) second.get('documentType'));
         Assert.areEqual('Chase', (String) second.get('sourceInstitution'));
-        Assert.areEqual(6, (Integer) second.get('startPage'), 'chunk-local 2 + offset (5-1) = 6');
-        Assert.areEqual(7, (Integer) second.get('endPage'), 'chunk-local 3 + offset (5-1) = 7');
+        List<Object> secondPages = (List<Object>) second.get('pages');
+        Assert.areEqual(1, secondPages.size());
+        Assert.areEqual(6, (Integer) secondPages[0], 'chunk-local 2 + shift(4) = 6');
     }
 
     @IsTest
@@ -110,8 +115,8 @@ private class ClassifyQueueableTest {
             jobId = SplitJobService.startJob(FAKE_SOURCE_CD, FAKE_LIBRARY, 6, 2);
 
             ClassifyQueueable.testStubResponse =
-                '[{"document_type":"DRIVERS_LICENSE","source_institution":null,"named_party":"John","start_page":1,"end_page":1},'
-                + '{"document_type":"W2","source_institution":null,"named_party":"John","start_page":2,"end_page":2}]';
+                '[{"document_type":"DRIVERS_LICENSE","source_institution":null,"named_party":"John","instance_label":null,"pages":[1]},'
+                + '{"document_type":"W2","source_institution":null,"named_party":"John","instance_label":null,"pages":[2]}]';
             System.enqueueJob(new ClassifyQueueable(jobId, 0, FAKE_CHUNK_CD, 1));
         }
         Test.stopTest();
@@ -121,7 +126,7 @@ private class ClassifyQueueableTest {
 
         System.runAs(getTestUser()) {
             ClassifyQueueable.testStubResponse =
-                '[{"document_type":"BANK_STATEMENT","source_institution":"Chase","named_party":"John","start_page":1,"end_page":2}]';
+                '[{"document_type":"BANK_STATEMENT","source_institution":"Chase","named_party":"John","instance_label":"Chase","pages":[1,2]}]';
             new ClassifyQueueable(jobId, 1, FAKE_CHUNK_CD, 4).execute(null);
         }
 
@@ -152,7 +157,7 @@ private class ClassifyQueueableTest {
     @IsTest
     static void shouldStripMarkdownFences_WhenModelWrapsResponse() {
         ClassifyQueueable.testStubResponse =
-            '```json\n[{"document_type":"PASSPORT","source_institution":null,"named_party":"Jane","start_page":1,"end_page":1}]\n```';
+            '```json\n[{"document_type":"PASSPORT","source_institution":null,"named_party":"Jane","instance_label":null,"pages":[1]}]\n```';
 
         Id jobId;
         Test.startTest();

@@ -124,7 +124,7 @@ private class SplitJobControllerTest {
             jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, null, 5, 1);
             String tinyB64 = EncodingUtil.base64Encode(Blob.valueOf('%PDF-1.4\n%%EOF\n'));
             String requestsJson = '[{"fileName":"a.pdf","base64Content":"' + tinyB64
-                + '","documentType":"DRIVERS_LICENSE","sourceInstitution":null,"namedParty":"John","startPage":1,"endPage":1}]';
+                + '","documentType":"DRIVERS_LICENSE","sourceInstitution":null,"namedParty":"John","instanceLabel":null,"pages":[1]}]';
             SplitJobController.startSaving(jobId, requestsJson, 8);
         }
         Test.stopTest();
@@ -137,7 +137,7 @@ private class SplitJobControllerTest {
     @IsTest
     static void shouldParseSaveRequests_RoundTrip() {
         String json = '[{"fileName":"a.pdf","base64Content":"YWJj","documentType":"DRIVERS_LICENSE",'
-            + '"sourceInstitution":null,"namedParty":"John","startPage":1,"endPage":1}]';
+            + '"sourceInstitution":null,"namedParty":"John","instanceLabel":null,"pages":[1,3]}]';
 
         Test.startTest();
         List<SplitSaveRequest> parsed = SplitJobController.parseSaveRequests(json);
@@ -147,7 +147,9 @@ private class SplitJobControllerTest {
         Assert.areEqual('a.pdf', parsed[0].fileName);
         Assert.areEqual('DRIVERS_LICENSE', parsed[0].documentType);
         Assert.areEqual('John', parsed[0].namedParty);
-        Assert.areEqual(1, parsed[0].startPage);
+        Assert.areEqual(2, parsed[0].pages.size(), 'Two pages round-tripped');
+        Assert.areEqual(1, parsed[0].pages[0]);
+        Assert.areEqual(3, parsed[0].pages[1]);
     }
 
     @IsTest

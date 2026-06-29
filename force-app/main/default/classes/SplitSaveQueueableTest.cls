@@ -196,8 +196,11 @@ private class SplitSaveQueueableTest {
         r.documentType = type;
         r.sourceInstitution = source;
         r.namedParty = party;
-        r.startPage = startP;
-        r.endPage = endP;
+        List<Integer> pages = new List<Integer>();
+        for (Integer p = startP; p <= endP; p++) {
+            pages.add(p);
+        }
+        r.pages = pages;
         return r;
     }
 }

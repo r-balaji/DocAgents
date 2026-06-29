@@ -248,10 +248,8 @@ export default class DocumentSplitter extends LightningElement {
 
         for (const req of requests) {
             const subDoc = await PDFDocument.create();
-            const pageIndices = [];
-            for (let p = req.startPage - 1; p <= req.endPage - 1; p++) {
-                pageIndices.push(p);
-            }
+            // pdf-lib accepts any array of indices, contiguous or not.
+            const pageIndices = req.pages.map((p) => p - 1);
             // eslint-disable-next-line no-await-in-loop
             const copied = await subDoc.copyPages(sourceDoc, pageIndices);
             copied.forEach((page) => subDoc.addPage(page));

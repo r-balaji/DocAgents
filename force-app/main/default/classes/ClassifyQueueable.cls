@@ -85,6 +85,9 @@ public with sharing class ClassifyQueueable implements Queueable, Database.Allow
      * page numbers by (pageOffset - 1) so they're absolute in the bundle.
      * The prompt returns 1-based page numbers WITHIN the chunk; if the chunk
      * starts at absolute page 9 (pageOffset=9), chunk-local page 1 -> absolute 9.
+     *
+     * Expected JSON shape per item: { document_type, source_institution,
+     * named_party, instance_label, pages: [int, ...] }.
      */
     @TestVisible
     private static List<DocSegment> parseAndShift(String rawJson, Integer pageOffset) {
@@ -107,17 +110,27 @@ public with sharing class ClassifyQueueable implements Queueable, Database.Allow
                 continue;
             }
             Map<String, Object> m = (Map<String, Object>) item;
-            Object startPageObj = m.get('start_page');
-            Object endPageObj = m.get('end_page');
-            if (startPageObj == null || endPageObj == null) {
+            Object pagesObj = m.get('pages');
+            if (!(pagesObj instanceof List<Object>)) {
+                continue;
+            }
+            List<Integer> shiftedPages = new List<Integer>();
+            for (Object p : (List<Object>) pagesObj) {
+                if (p instanceof Integer) {
+                    shiftedPages.add(((Integer) p) + shift);
+                } else if (p instanceof Decimal) {
+                    shiftedPages.add(((Decimal) p).intValue() + shift);
+                }
+            }
+            if (shiftedPages.isEmpty()) {
                 continue;
             }
             DocSegment s = new DocSegment();
             s.documentType      = (String) m.get('document_type');
             s.sourceInstitution = (String) m.get('source_institution');
             s.namedParty        = (String) m.get('named_party');
-            s.startPage         = ((Integer) startPageObj) + shift;
-            s.endPage           = ((Integer) endPageObj) + shift;
+            s.instanceLabel     = (String) m.get('instance_label');
+            s.pages             = shiftedPages;
             out.add(s);
         }
         return out;
@@ -129,7 +142,7 @@ public with sharing class ClassifyQueueable implements Queueable, Database.Allow
      * reads the current accumulator, appends, and writes back.
      *
      * Stores the segments using DocSegment's field names (documentType,
-     * sourceInstitution, namedParty, startPage, endPage) so SplitJobService.
+     * sourceInstitution, namedParty, instanceLabel, pages) so SplitJobService.
      * deserializeRawSegments can read them back as typed objects.
      */
     private static void appendSegmentsToJob(Id jobId, List<DocSegment> segments) {
@@ -149,8 +162,8 @@ public with sharing class ClassifyQueueable implements Queueable, Database.Allow
                 'documentType' => s.documentType,
                 'sourceInstitution' => s.sourceInstitution,
                 'namedParty' => s.namedParty,
-                'startPage' => s.startPage,
-                'endPage' => s.endPage
+                'instanceLabel' => s.instanceLabel,
+                'pages' => s.pages
             });
         }
         job.Raw_Segments_JSON__c = JSON.serialize(accumulator).left(32768);

@@ -83,8 +83,8 @@ export function segmentsToSaveRequests(segments) {
             documentType: seg.documentType,
             sourceInstitution: seg.sourceInstitution || null,
             namedParty: seg.namedParty || null,
-            startPage: seg.startPage,
-            endPage: seg.endPage
+            instanceLabel: seg.instanceLabel || null,
+            pages: Array.isArray(seg.pages) ? [...seg.pages] : []
         });
     }
     return requests;
