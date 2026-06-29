@@ -1,0 +1,45 @@
+<template>
+    <lightning-card title="AI Document Splitter" icon-name="utility:upload">
+        <div class="slds-p-horizontal_medium slds-p-bottom_medium">
+            <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_small">
+                Use AI to classify and split this bundle into typed documents. The splits will be saved back to the same library.
+            </p>
+
+            <lightning-button
+                label="Split Documents"
+                variant="brand"
+                icon-name="utility:cut"
+                disabled={buttonDisabled}
+                onclick={handleSplitClick}>
+            </lightning-button>
+
+            <template lwc:if={isBusy}>
+                <div class="slds-m-top_medium">
+                    <p class="slds-text-body_regular">{progressLabel}</p>
+                    <p class="slds-text-body_small slds-text-color_weak">{statusMessage}</p>
+                    <div class="slds-progress-bar slds-progress-bar_circular slds-m-top_x-small" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" role="progressbar">
+                        <span class="slds-progress-bar__value slds-progress-bar__value_success" style="width: 50%"></span>
+                    </div>
+                </div>
+            </template>
+
+            <template lwc:if={isComplete}>
+                <div class="slds-box slds-box_small slds-theme_success slds-m-top_medium">
+                    <p class="slds-text-heading_small">{progressLabel}</p>
+                    <ul class="slds-list_dotted slds-m-top_x-small">
+                        <template for:each={breakdownLines} for:item="line">
+                            <li key={line.key} class="slds-text-body_small">{line.label}</li>
+                        </template>
+                    </ul>
+                </div>
+            </template>
+
+            <template lwc:if={isError}>
+                <div class="slds-box slds-box_small slds-theme_error slds-m-top_medium">
+                    <p class="slds-text-heading_small">Error</p>
+                    <p class="slds-text-body_small">{errorMessage}</p>
+                </div>
+            </template>
+        </div>
+    </lightning-card>
+</template>

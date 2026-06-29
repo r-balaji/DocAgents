@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>66.0</apiVersion>
+    <isExposed>false</isExposed>
+    <description>Shared JS helpers for the AI Document Splitter LWCs (chunk math, filename builder, base64 conversions, event decoding). Not a UI component.</description>
+</LightningComponentBundle>

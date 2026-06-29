@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Chunks_Completed__c</fullName>
+    <defaultValue>0</defaultValue>
+    <description>Counter of ClassifyQueueable runs that have completed successfully for this job. Incremented under a row lock so concurrent queueables serialize their "am I the last one?" check.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Auto-managed by ClassifyQueueable. When this reaches Chunk Count, the job moves from Detecting to Merging.</inlineHelpText>
+    <label>Chunks Completed</label>
+    <precision>5</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <type>Number</type>
+    <unique>false</unique>
+</CustomField>

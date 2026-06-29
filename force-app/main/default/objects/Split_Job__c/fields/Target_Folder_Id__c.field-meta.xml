@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Target_Folder_Id__c</fullName>
+    <description>Optional ContentFolder Id where split outputs should be saved. Set when the source bundle lives in a folder; blank means save to the library root.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Auto-detected from the source file's folder membership. Splits land in the same folder as the bundle.</inlineHelpText>
+    <label>Target Folder Id</label>
+    <length>18</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

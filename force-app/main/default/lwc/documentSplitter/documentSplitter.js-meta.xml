@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>66.0</apiVersion>
+    <isExposed>true</isExposed>
+    <description>AI Document Splitter — classifies and splits a multi-page PDF bundle into individual typed documents using a vision prompt.</description>
+    <masterLabel>AI Document Splitter</masterLabel>
+    <targets>
+        <target>lightning__RecordAction</target>
+        <target>lightning__RecordPage</target>
+        <target>lightning__AppPage</target>
+    </targets>
+    <targetConfigs>
+        <targetConfig targets="lightning__RecordAction">
+            <actionType>ScreenAction</actionType>
+            <objects>
+                <object>ContentDocument</object>
+            </objects>
+        </targetConfig>
+        <targetConfig targets="lightning__RecordPage,lightning__AppPage">
+            <property name="libraryId" type="String" label="Library Id (optional)" description="ContentWorkspace Id where split files will be saved. Leave blank to auto-detect from the source file's library."/>
+            <property name="chunkSize" type="Integer" label="Chunk Size" description="Pages per AI classification chunk." default="8"/>
+            <property name="chunkOverlap" type="Integer" label="Chunk Overlap" description="Pages each chunk re-includes from the previous chunk (heals seam-straddling docs)." default="2"/>
+        </targetConfig>
+    </targetConfigs>
+</LightningComponentBundle>

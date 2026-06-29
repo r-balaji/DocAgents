@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Raw_Segments_JSON__c</fullName>
+    <description>JSON array accumulator. Each ClassifyQueueable parses its chunk's prompt response, applies the page-offset shift, and appends its segments to this field under a row lock. Read by SplitJobService.finalizeJob to feed SegmentMerger.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Auto-managed. JSON list of {document_type, source_institution, named_party, start_page, end_page} across all chunks. Cleared when the job completes.</inlineHelpText>
+    <label>Raw Segments JSON</label>
+    <length>32768</length>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>LongTextArea</type>
+    <visibleLines>10</visibleLines>
+</CustomField>

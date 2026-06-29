@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Classification_Hints__c</fullName>
+    <description>Keywords and layout cues the vision model uses to recognize this document type.</description>
+    <externalId>false</externalId>
+    <fieldManageability>SubscriberControlled</fieldManageability>
+    <inlineHelpText>Visual and textual cues the AI uses to recognize this document type — letterhead, layout, key phrases, form numbers. The more specific the cues, the better the classification accuracy.</inlineHelpText>
+    <label>Classification Hints</label>
+    <length>32768</length>
+    <type>LongTextArea</type>
+    <visibleLines>5</visibleLines>
+</CustomField>

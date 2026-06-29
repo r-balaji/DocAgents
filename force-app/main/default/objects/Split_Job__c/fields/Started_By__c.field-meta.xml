@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Started_By__c</fullName>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <description>The user who clicked Split Documents on the source bundle.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>User who clicked Split Documents. Used for the audit trail and to route any failure notifications back to that user.</inlineHelpText>
+    <label>Started By</label>
+    <referenceTo>User</referenceTo>
+    <relationshipLabel>Split Jobs Started</relationshipLabel>
+    <relationshipName>Split_Jobs_Started</relationshipName>
+    <required>false</required>
+    <type>Lookup</type>
+</CustomField>

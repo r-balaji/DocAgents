@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Merged_Segments_JSON__c</fullName>
+    <description>Final non-overlapping segment list produced by SegmentMerger after all chunks complete. JSON list of {documentType, sourceInstitution, namedParty, startPage, endPage} with full page coverage. Consumed by the documentSplitter LWC to split the source PDF.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Auto-managed. Final merged segments after all chunks classified. Read by the LWC to split the bundle PDF into typed files.</inlineHelpText>
+    <label>Merged Segments JSON</label>
+    <length>32768</length>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>LongTextArea</type>
+    <visibleLines>10</visibleLines>
+</CustomField>

@@ -1,0 +1,79 @@
+.source-grid {
+    margin-top: 0.25rem;
+}
+
+.results-pane {
+    max-height: 240px;
+    overflow-y: auto;
+    border: 1px solid var(--lwc-colorBorder, #d8dde6);
+    border-radius: 4px;
+    background: #ffffff;
+}
+
+.results-pane ul {
+    margin: 0;
+}
+
+.result-row {
+    width: 100%;
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.result-row:hover {
+    background: #f3f6f9;
+}
+
+.result-title {
+    flex: 1 1 auto;
+    color: #181818;
+}
+
+.result-meta {
+    flex: 0 0 auto;
+    margin-left: 0.5rem;
+}
+
+.selected-box {
+    background: linear-gradient(135deg, #eef3ff 0%, #f7f9fc 100%);
+    border-left: 3px solid #5867dd;
+}
+
+/* ----- Busy spinner animation ----- */
+
+.busy-region {
+    background: linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%);
+}
+
+.busy-spinner-wrap {
+    flex: 0 0 auto;
+    width: 48px;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.busy-spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 4px solid #e1e5eb;
+    border-top-color: #5867dd;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Hover state on table rows */
+table tbody tr:hover {
+    background-color: #f9fafb;
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Sort_Order__c</fullName>
+    <description>Order in which this type appears in the prompt. Also used as tie-break priority in SegmentMerger when overlapping segments conflict.</description>
+    <externalId>false</externalId>
+    <fieldManageability>SubscriberControlled</fieldManageability>
+    <inlineHelpText>Lower numbers appear earlier in the AI prompt and win priority ties when two segments overlap. Leave gaps (10, 20, 30…) so new types can be inserted without renumbering all rows.</inlineHelpText>
+    <label>Sort Order</label>
+    <precision>4</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <type>Number</type>
+    <unique>false</unique>
+</CustomField>

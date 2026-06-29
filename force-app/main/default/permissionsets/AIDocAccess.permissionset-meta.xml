@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
-    <description>Grants access to the AI Doc Coverage Review feature (Apex action + Flow).</description>
+    <description>Grants access to the AI Doc Coverage Review and AI Doc Splitter features.</description>
     <hasActivationRequired>false</hasActivationRequired>
     <label>AI Doc Access</label>
     <license>Salesforce</license>
@@ -21,9 +21,102 @@
         <apexClass>AIDocMergeJsonItems</apexClass>
         <enabled>true</enabled>
     </classAccesses>
+    <classAccesses>
+        <apexClass>SplitJobService</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>ClassifyQueueable</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>SplitSaveQueueable</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>SplitJobController</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+
+    <objectPermissions>
+        <allowCreate>true</allowCreate>
+        <allowDelete>true</allowDelete>
+        <allowEdit>true</allowEdit>
+        <allowRead>true</allowRead>
+        <modifyAllRecords>false</modifyAllRecords>
+        <object>Split_Job__c</object>
+        <viewAllRecords>false</viewAllRecords>
+    </objectPermissions>
+
     <fieldPermissions>
         <editable>true</editable>
         <field>genesis__Applications__c.Email_Template__c</field>
         <readable>true</readable>
     </fieldPermissions>
+    <!-- Source_ContentDocument_Id__c, Library_Id__c, Status__c are required fields - implicit FLS. -->
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Total_Pages__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Chunk_Count__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Chunks_Completed__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Documents_Created__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Type_Breakdown_JSON__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Raw_Segments_JSON__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Merged_Segments_JSON__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Target_Folder_Id__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Target_Record_Id__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Is_Headless__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Error_Detail__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Started_By__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+
+    <externalCredentialPrincipalAccesses>
+        <enabled>true</enabled>
+        <externalCredentialPrincipal>PdfLibServiceCred-Default</externalCredentialPrincipal>
+    </externalCredentialPrincipalAccesses>
 </PermissionSet>
