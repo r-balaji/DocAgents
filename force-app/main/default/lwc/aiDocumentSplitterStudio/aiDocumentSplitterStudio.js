@@ -13,6 +13,7 @@ import uploadChunkPdf from '@salesforce/apex/SplitJobController.uploadChunkPdf';
 import startJob from '@salesforce/apex/SplitJobController.startJob';
 import enqueueChunkClassification from '@salesforce/apex/SplitJobController.enqueueChunkClassification';
 import startSaving from '@salesforce/apex/SplitJobController.startSaving';
+import startHeadlessSplit from '@salesforce/apex/SplitJobController.startHeadlessSplit';
 import searchFiles from '@salesforce/apex/SplitJobController.searchFiles';
 import getJobOutputFiles from '@salesforce/apex/SplitJobController.getJobOutputFiles';
 import deleteFiles from '@salesforce/apex/SplitJobController.deleteFiles';
@@ -47,6 +48,18 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
     @track selectedOutputIds = new Set();
     @track typeBreakdown = [];
     @track isDeleting = false;
+    @track mode = 'ui';                             // 'ui' (browser pdf-lib) | 'web' (headless service)
+
+    get modeOptions() {
+        return [
+            { label: 'UI (browser pdf-lib)', value: 'ui' },
+            { label: 'Web (self-hosted service)', value: 'web' }
+        ];
+    }
+
+    handleModeChange(event) {
+        this.mode = event.detail.value;
+    }
 
     pdfLibReady = false;
     subscription;
@@ -156,6 +169,36 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
     }
 
     async runSplitPipeline() {
+        if (this.mode === 'web') {
+            return this.runHeadlessPipeline();
+        }
+        return this.runBrowserPipeline();
+    }
+
+    /**
+     * Headless / service-driven path. Hands the work to Apex; the existing
+     * empApi subscription handles status updates through Complete.
+     */
+    async runHeadlessPipeline() {
+        this.stage = 'preparing';
+        this.statusMessage = 'Submitting to PDF service...';
+        this.errorMessage = '';
+        this.outputFiles = [];
+        this.progressPercent = 10;
+
+        this.jobId = await startHeadlessSplit({
+            sourceContentDocumentId: this.selectedFile.id,
+            targetRecordId: null
+        });
+
+        this.stage = 'classifying';
+        this.statusMessage = 'PDF service running classification...';
+        this.progressPercent = 30;
+        // empApi pushes Splitting / Saving / Complete events; handleJobEvent
+        // recognizes this.mode === 'web' and skips the browser-side splitAndSave.
+    }
+
+    async runBrowserPipeline() {
         this.stage = 'preparing';
         this.statusMessage = 'Resolving target library...';
         this.errorMessage = '';
@@ -271,6 +314,12 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
         if (decoded.status === 'Splitting' && decoded.summaryJson) {
             this.stage = 'splitting';
             this.progressPercent = 75;
+            if (this.mode === 'web') {
+                // Headless path: the service does the binary slice + save.
+                // The LWC just reflects status and waits for Complete.
+                this.statusMessage = 'PDF service slicing outputs...';
+                return;
+            }
             try {
                 await this.splitAndSave(decoded.summaryJson);
             } catch (e) {

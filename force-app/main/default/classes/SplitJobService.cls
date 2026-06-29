@@ -32,6 +32,20 @@ public with sharing class SplitJobService {
      * carry folder context.
      */
     public static Id startJob(Id sourceContentDocumentId, Id libraryId, Id folderId, Integer totalPages, Integer chunkCount) {
+        return startJob(sourceContentDocumentId, libraryId, folderId, null, totalPages, chunkCount, false);
+    }
+
+    /**
+     * Headless overload — used by the @InvocableMethod entry point. Sets
+     * Is_Headless__c so SplitJobService.runMergeAndPrepareForSplit enqueues
+     * the self-hosted service for the binary split step instead of waiting
+     * on the LWC.
+     *
+     * targetRecordId — typically a Loan_Application__c. The service attaches
+     * each split output to this record via ContentDocumentLink.
+     */
+    public static Id startJob(Id sourceContentDocumentId, Id libraryId, Id folderId, Id targetRecordId,
+                              Integer totalPages, Integer chunkCount, Boolean isHeadless) {
         if (sourceContentDocumentId == null) {
             throw new SplitJobException('sourceContentDocumentId is required.');
         }
@@ -49,6 +63,8 @@ public with sharing class SplitJobService {
             Source_ContentDocument_Id__c = (String) sourceContentDocumentId,
             Library_Id__c = (String) libraryId,
             Target_Folder_Id__c = folderId == null ? null : (String) folderId,
+            Target_Record_Id__c = targetRecordId == null ? null : (String) targetRecordId,
+            Is_Headless__c = isHeadless == true,
             Status__c = 'Queued',
             Total_Pages__c = totalPages,
             Chunk_Count__c = chunkCount,
@@ -101,7 +117,8 @@ public with sharing class SplitJobService {
             return;
         }
 
-        Split_Job__c job = [SELECT Id, Chunk_Count__c, Chunks_Completed__c, Status__c, Raw_Segments_JSON__c, Total_Pages__c
+        Split_Job__c job = [SELECT Id, Chunk_Count__c, Chunks_Completed__c, Status__c, Raw_Segments_JSON__c,
+                                   Total_Pages__c, Is_Headless__c
                             FROM Split_Job__c
                             WHERE Id = :jobId
                             WITH USER_MODE
@@ -238,6 +255,11 @@ public with sharing class SplitJobService {
         if (String.isBlank(job.Merged_Segments_JSON__c)) return false;
         if (job.Total_Pages__c == null) return false;
         if (String.isBlank(job.Source_ContentDocument_Id__c)) return false;
+        // Defensive: if the job thinks the source has <= 1 page, refuse to delete.
+        // 1-page Total_Pages__c is suspicious for a "real" source — usually it's
+        // either an actual 1-page file (small risk if we keep it) or an unset/
+        // placeholder value (high risk if we delete the source).
+        if (job.Total_Pages__c <= 1) return false;
 
         List<Object> segments;
         try {
@@ -292,17 +314,45 @@ public with sharing class SplitJobService {
     @TestVisible
     private static void runMergeAndPrepareForSplit(Split_Job__c job) {
         List<DocSegment> raw = deserializeRawSegments(job.Raw_Segments_JSON__c);
-        List<DocSegment> merged = SegmentMerger.mergeSegments(raw, (Integer) job.Total_Pages__c, FALLBACK_TYPE);
+
+        // Derive the real page count from what the LLM actually returned, not
+        // from whatever Total_Pages__c was at job creation. The headless single-
+        // call path creates the job with totalPages=1 as a placeholder (we
+        // don't know the real count until the LLM responds). The merger uses
+        // totalPages to clamp pages, so trusting the placeholder silently
+        // drops every page > 1.
+        Integer derivedTotal = job.Total_Pages__c == null ? 0 : ((Integer) job.Total_Pages__c);
+        for (DocSegment s : raw) {
+            if (s.pages == null) continue;
+            for (Integer p : s.pages) {
+                if (p != null && p > derivedTotal) derivedTotal = p;
+            }
+        }
+        if (derivedTotal < 1) derivedTotal = 1;
+
+        List<DocSegment> merged = SegmentMerger.mergeSegments(raw, derivedTotal, FALLBACK_TYPE);
         String mergedJson = JSON.serialize(merged);
 
         Split_Job__c statusUpdate = new Split_Job__c(
             Id = job.Id,
             Status__c = 'Splitting',
+            Total_Pages__c = derivedTotal,
             Merged_Segments_JSON__c = mergedJson.left(32768)
         );
         Database.update(statusUpdate, AccessLevel.USER_MODE);
 
         publishUpdate(job.Id, 'Splitting', mergedJson, 'Merged into ' + merged.size() + ' segments.');
+
+        System.debug(LoggingLevel.INFO, 'runMergeAndPrepareForSplit jobId=' + job.Id
+            + ' derivedTotalPages=' + derivedTotal
+            + ' rawCount=' + raw.size()
+            + ' mergedCount=' + merged.size());
+
+        // Headless flow: there's no LWC subscriber to drive the split step, so
+        // enqueue the pdf-lib service to do the binary work and finalize.
+        if (job.Is_Headless__c == true && !Test.isRunningTest()) {
+            System.enqueueJob(new PdfServiceSplitQueueable(job.Id));
+        }
     }
 
     /**

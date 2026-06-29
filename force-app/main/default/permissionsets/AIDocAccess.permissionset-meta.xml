@@ -96,6 +96,16 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
+        <field>Split_Job__c.Target_Record_Id__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Split_Job__c.Is_Headless__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
         <field>Split_Job__c.Error_Detail__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -104,4 +114,9 @@
         <field>Split_Job__c.Started_By__c</field>
         <readable>true</readable>
     </fieldPermissions>
+
+    <externalCredentialPrincipalAccesses>
+        <enabled>true</enabled>
+        <externalCredentialPrincipal>PdfLibServiceCred-Default</externalCredentialPrincipal>
+    </externalCredentialPrincipalAccesses>
 </PermissionSet>

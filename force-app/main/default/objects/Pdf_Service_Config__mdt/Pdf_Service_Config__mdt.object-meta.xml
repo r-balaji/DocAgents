@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Holds runtime config for the self-hosted pdf-lib service: shared API key and (optional) endpoint override. Read by PdfServiceClient on every callout. One active record expected.</description>
+    <label>PDF Service Config</label>
+    <pluralLabel>PDF Service Configs</pluralLabel>
+    <visibility>Public</visibility>
+</CustomObject>

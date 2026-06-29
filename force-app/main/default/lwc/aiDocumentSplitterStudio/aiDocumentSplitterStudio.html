@@ -47,6 +47,19 @@
                             <p class="slds-text-body_small slds-text-color_weak">Selected source file</p>
                             <p class="slds-text-heading_small">{selectedFile.title}</p>
                             <p class="slds-text-body_small slds-text-color_weak">{selectedFile.sizeLabel}</p>
+
+                            <div class="slds-m-top_x-small">
+                                <lightning-radio-group
+                                    name="splitMode"
+                                    label="Split runtime"
+                                    options={modeOptions}
+                                    value={mode}
+                                    onchange={handleModeChange}
+                                    disabled={isBusy}
+                                    type="radio">
+                                </lightning-radio-group>
+                            </div>
+
                             <div class="slds-m-top_x-small">
                                 <lightning-button
                                     label="Split Documents"

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Endpoint_Override__c</fullName>
+    <description>Optional. Leave blank to use the URL configured on the PdfLibService Named Credential. Set this for unit-test environments or short-term endpoint swaps without touching Named Credential metadata.</description>
+    <inlineHelpText>Optional — full URL including https://. Normally blank.</inlineHelpText>
+    <label>Endpoint Override</label>
+    <required>false</required>
+    <type>Url</type>
+</CustomField>

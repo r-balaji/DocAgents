@@ -180,6 +180,28 @@ public with sharing class SplitJobController {
         }
     }
 
+    /**
+     * LWC entry to the headless (service-driven) pipeline. Lets the studio's
+     * "Web" radio option run the same flow that DocSplitterInvocable exposes
+     * to Flow / record-trigger automation, so both modes can be A/B'd.
+     *
+     * Returns the Split_Job__c Id; the studio's empApi subscription picks up
+     * the same status events the UI mode emits.
+     */
+    @AuraEnabled
+    public static Id startHeadlessSplit(Id sourceContentDocumentId, Id targetRecordId) {
+        try {
+            DocSplitterInvocable.Request req = new DocSplitterInvocable.Request();
+            req.sourceContentDocumentId = sourceContentDocumentId;
+            req.targetRecordId = targetRecordId;
+            List<DocSplitterInvocable.Response> res =
+                DocSplitterInvocable.startHeadlessSplit(new List<DocSplitterInvocable.Request>{ req });
+            return res[0].jobId;
+        } catch (Exception e) {
+            throw new AuraHandledException(e.getMessage());
+        }
+    }
+
     @AuraEnabled
     public static void enqueueChunkClassification(Id jobId, Integer chunkIndex, Id chunkContentDocumentId, Integer pageOffset) {
         try {

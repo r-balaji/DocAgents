@@ -52,3 +52,6 @@ $RECYCLE.BIN/
 
 # Local agent / Claude Code config (per-machine)
 .agents/
+
+# Local/generated working notes
+docs/REMOVE_WORKAROUNDS.md

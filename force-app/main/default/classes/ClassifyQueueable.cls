@@ -144,12 +144,19 @@ public with sharing class ClassifyQueueable implements Queueable, Database.Allow
      * Stores the segments using DocSegment's field names (documentType,
      * sourceInstitution, namedParty, instanceLabel, pages) so SplitJobService.
      * deserializeRawSegments can read them back as typed objects.
+     *
+     * Also raises Total_Pages__c to the max page seen across all segments in
+     * this chunk. The single-call headless path (DocSplitterInvocable) creates
+     * the job with totalPages=1 as a placeholder since pdf-lib isn't in the
+     * loop; the LLM's response is the first time we learn the real page count.
+     * SegmentMerger uses Total_Pages__c to clamp page numbers, so getting this
+     * right is load-bearing — wrong totalPages drops every page above it.
      */
     private static void appendSegmentsToJob(Id jobId, List<DocSegment> segments) {
         if (segments.isEmpty()) {
             return;
         }
-        Split_Job__c job = [SELECT Id, Raw_Segments_JSON__c
+        Split_Job__c job = [SELECT Id, Raw_Segments_JSON__c, Total_Pages__c
                             FROM Split_Job__c
                             WHERE Id = :jobId
                             WITH USER_MODE
@@ -157,7 +164,14 @@ public with sharing class ClassifyQueueable implements Queueable, Database.Allow
         List<Object> accumulator = String.isBlank(job.Raw_Segments_JSON__c)
             ? new List<Object>()
             : (List<Object>) JSON.deserializeUntyped(job.Raw_Segments_JSON__c);
+
+        Integer maxPageInChunk = 0;
         for (DocSegment s : segments) {
+            if (s.pages != null) {
+                for (Integer p : s.pages) {
+                    if (p != null && p > maxPageInChunk) maxPageInChunk = p;
+                }
+            }
             accumulator.add(new Map<String, Object>{
                 'documentType' => s.documentType,
                 'sourceInstitution' => s.sourceInstitution,
@@ -166,7 +180,12 @@ public with sharing class ClassifyQueueable implements Queueable, Database.Allow
                 'pages' => s.pages
             });
         }
+
         job.Raw_Segments_JSON__c = JSON.serialize(accumulator).left(32768);
+        Integer currentTotal = job.Total_Pages__c == null ? 0 : ((Integer) job.Total_Pages__c);
+        if (maxPageInChunk > currentTotal) {
+            job.Total_Pages__c = maxPageInChunk;
+        }
         Database.update(job, AccessLevel.USER_MODE);
     }
 
