@@ -27,6 +27,11 @@ import {
 
 const EVENT_CHANNEL = '/event/Split_Job_Update__e';
 
+// Salesforce Prompt Builder caps total file input at 15 MB regardless of the
+// underlying model. Bundles at or below this threshold (with buffer for the
+// prompt envelope) go through a single LLM call instead of the chunking path.
+const SINGLE_CALL_THRESHOLD_BYTES = 12 * 1024 * 1024;
+
 export default class AiDocumentSplitterStudio extends NavigationMixin(LightningElement) {
     @api chunkSize = 8;
     @api chunkOverlap = 2;
@@ -169,12 +174,40 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
         const { PDFDocument } = window.PDFLib;
         const sourceDoc = await PDFDocument.load(this.sourcePdfBytes);
         const totalPages = sourceDoc.getPageCount();
-        const chunks = computeChunks(totalPages, this.chunkSize, this.chunkOverlap);
-        if (chunks.length === 0) {
+        if (totalPages < 1) {
             throw new Error('Source PDF has no pages.');
         }
-        this.totalChunksForProgress = chunks.length;
 
+        // Branch: single-call (≤ 12 MB, fits in Prompt Builder) vs chunked
+        const useSingleCall = this.sourcePdfBytes.length <= SINGLE_CALL_THRESHOLD_BYTES;
+
+        if (useSingleCall) {
+            this.totalChunksForProgress = 1;
+            this.statusMessage = `Classifying ${totalPages} pages in a single call...`;
+            this.progressPercent = 25;
+
+            this.jobId = await startJob({
+                sourceContentDocumentId: this.selectedFile.id,
+                libraryId: this.resolvedLibraryId,
+                folderId: this.resolvedFolderId,
+                totalPages,
+                chunkCount: 1
+            });
+            this.stage = 'classifying';
+            this.progressPercent = 40;
+
+            // Whole source acts as "chunk 0" with absolute page numbers (offset=1).
+            await enqueueChunkClassification({
+                jobId: this.jobId,
+                chunkIndex: 0,
+                chunkContentDocumentId: this.selectedFile.id,
+                pageOffset: 1
+            });
+            return;
+        }
+
+        const chunks = computeChunks(totalPages, this.chunkSize, this.chunkOverlap);
+        this.totalChunksForProgress = chunks.length;
         this.statusMessage = `Preparing ${chunks.length} chunks (${totalPages} pages)...`;
         this.progressPercent = 25;
 

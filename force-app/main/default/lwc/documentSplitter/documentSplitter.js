@@ -17,6 +17,10 @@ import { computeChunks, segmentsToSaveRequests, uint8ToBase64, base64ToUint8, de
 
 const EVENT_CHANNEL = '/event/Split_Job_Update__e';
 
+// Salesforce Prompt Builder caps total file input at 15 MB. Files at or below
+// this threshold (with buffer) go through a single LLM call instead of chunking.
+const SINGLE_CALL_THRESHOLD_BYTES = 12 * 1024 * 1024;
+
 export default class DocumentSplitter extends LightningElement {
     @api recordId;                              // ContentDocumentId (quick-action context)
     @api libraryId;                             // Optional override; auto-detected from source if blank
@@ -109,16 +113,41 @@ export default class DocumentSplitter extends LightningElement {
         const { PDFDocument } = window.PDFLib;
         const sourceDoc = await PDFDocument.load(this.sourcePdfBytes);
         const totalPages = sourceDoc.getPageCount();
-
-        // 4. Compute overlapping chunks.
-        const chunks = computeChunks(totalPages, this.chunkSize, this.chunkOverlap);
-        if (chunks.length === 0) {
+        if (totalPages < 1) {
             throw new Error('Source PDF has no pages.');
         }
+
+        // 4. Branch: single-call (≤ 12 MB, fits in Prompt Builder) vs chunked.
+        const useSingleCall = this.sourcePdfBytes.length <= SINGLE_CALL_THRESHOLD_BYTES;
+
+        if (useSingleCall) {
+            this.totalChunks = 1;
+            this.statusMessage = `Classifying ${totalPages} pages in a single call...`;
+
+            this.jobId = await startJob({
+                sourceContentDocumentId: this.recordId,
+                libraryId: this.resolvedLibraryId,
+                folderId: this.resolvedFolderId,
+                totalPages,
+                chunkCount: 1
+            });
+            this.status = 'classifying';
+
+            // Whole source acts as "chunk 0" with absolute page numbers (offset=1).
+            await enqueueChunkClassification({
+                jobId: this.jobId,
+                chunkIndex: 0,
+                chunkContentDocumentId: this.recordId,
+                pageOffset: 1
+            });
+            return;
+        }
+
+        // 5. Chunked path (files > 12 MB).
+        const chunks = computeChunks(totalPages, this.chunkSize, this.chunkOverlap);
         this.totalChunks = chunks.length;
         this.statusMessage = `Preparing ${chunks.length} chunks (${totalPages} pages total)...`;
 
-        // 5. Build sub-PDFs for each chunk and upload them.
         const chunkUploads = [];
         for (const chunk of chunks) {
             const subDoc = await PDFDocument.create();
@@ -141,7 +170,6 @@ export default class DocumentSplitter extends LightningElement {
             this.statusMessage = `Uploaded chunk ${chunk.chunkIndex + 1} of ${chunks.length}...`;
         }
 
-        // 6. Create the Split_Job__c.
         this.jobId = await startJob({
             sourceContentDocumentId: this.recordId,
             libraryId: this.resolvedLibraryId,
@@ -152,7 +180,6 @@ export default class DocumentSplitter extends LightningElement {
         this.status = 'classifying';
         this.statusMessage = `Classifying ${chunks.length} chunks...`;
 
-        // 7. Enqueue one classify per chunk.
         for (const upload of chunkUploads) {
             // eslint-disable-next-line no-await-in-loop
             await enqueueChunkClassification({
