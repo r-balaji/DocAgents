@@ -3,20 +3,22 @@
  *
  *  1. Coverage stats — counts every borrower-facing document slot, files attached, missing categories.
  *  2. Party roster   — resolves all parties on the Application from clcommon__Party__c.
- *  3. Filled-file rows — one pipe-encoded row per attached file, including the party that owns
- *     the file's category tree.
+ *  3. Unreviewed-file rows — one pipe-encoded row per attached file that is missing stored
+ *     AI feedback, including the party that owns the file's category tree.
  *
- * Encoding for encodedRows: "<docId>|<categoryName>|<partyName>|<partyType>"
+ * Encoding for encodedRows: "<docId>|<categoryName>|<partyName>|<partyType>|<categoryId>"
  *
  * Why all in one class: the same SOQL on clcommon__Document_Category__c and clcommon__Party__c
  * was being run twice per flow execution. Consolidating cuts two queries per run and removes
  * duplicated processing. No AI involvement — fully deterministic SOQL.
  */
 public with sharing class AIDocCoverageCheck {
+    private static final String CLASSIFICATION_JSON_KEY = 'classificationJson';
+    private static final String SANITY_JSON_KEY = 'sanityJson';
 
     @InvocableMethod(
         label='AI Doc - Coverage Check'
-        description='Returns coverage stats, borrower name, and one party-aware encoded row per attached file.'
+        description='Returns coverage stats, borrower name, stored review JSON, and party-aware rows for files still needing review.'
         category='AI Document Review'
     )
     public static List<Response> execute(List<Request> requests) {
@@ -41,7 +43,8 @@ public with sharing class AIDocCoverageCheck {
         }
 
         // All active categories on the requested applications, keyed by Id for tree-walking.
-        Map<Id, clcommon__Document_Category__c> categoriesById = new Map<Id, clcommon__Document_Category__c>([SELECT Id, Name, clcommon__Category_Name__c, genesis__Application__c, clcommon__Parent_Document_Category__c, clcommon__Account__c
+        Map<Id, clcommon__Document_Category__c> categoriesById = new Map<Id, clcommon__Document_Category__c>([SELECT Id, Name, clcommon__Category_Name__c, genesis__Application__c, clcommon__Parent_Document_Category__c, clcommon__Account__c,
+                                                                                                                   AI_Reviewed__c, AI_Review_Feedback_JSON__c
                                                                                                             FROM clcommon__Document_Category__c
                                                                                                             WHERE genesis__Application__c IN :allApplicationIds
                                                                                                             AND clcommon__Active__c = true
@@ -66,14 +69,21 @@ public with sharing class AIDocCoverageCheck {
         Set<Id> allCatIds = categoriesById.keySet();
         Map<Id, Integer> fileCountByCatId = new Map<Id, Integer>();
         Map<Id, List<Id>> docIdsByCatId = new Map<Id, List<Id>>();
-        List<ContentDocumentLink> files = [SELECT LinkedEntityId, ContentDocumentId FROM ContentDocumentLink WHERE LinkedEntityId IN :allCatIds WITH USER_MODE];
-        for (ContentDocumentLink l : files) {
-            Integer n = fileCountByCatId.containsKey(l.LinkedEntityId) ? fileCountByCatId.get(l.LinkedEntityId) : 0;
-            fileCountByCatId.put(l.LinkedEntityId, n + 1);
-            if (!docIdsByCatId.containsKey(l.LinkedEntityId)) {
-                docIdsByCatId.put(l.LinkedEntityId, new List<Id>());
+        if (!allCatIds.isEmpty()) {
+            List<ContentDocumentLink> files = [
+                SELECT LinkedEntityId, ContentDocumentId
+                FROM ContentDocumentLink
+                WHERE LinkedEntityId IN :allCatIds
+                WITH USER_MODE
+            ];
+            for (ContentDocumentLink l : files) {
+                Integer n = fileCountByCatId.containsKey(l.LinkedEntityId) ? fileCountByCatId.get(l.LinkedEntityId) : 0;
+                fileCountByCatId.put(l.LinkedEntityId, n + 1);
+                if (!docIdsByCatId.containsKey(l.LinkedEntityId)) {
+                    docIdsByCatId.put(l.LinkedEntityId, new List<Id>());
+                }
+                docIdsByCatId.get(l.LinkedEntityId).add(l.ContentDocumentId);
             }
-            docIdsByCatId.get(l.LinkedEntityId).add(l.ContentDocumentId);
         }
 
         // Parties on the application — both keyed two ways:
@@ -199,17 +209,26 @@ public with sharing class AIDocCoverageCheck {
                 'id' => c.Id,
                 'name' => c.clcommon__Category_Name__c,
                 'fileCount' => fc,
-                'onFile' => fc > 0
+                'onFile' => fc > 0,
+                'aiReviewed' => c.AI_Reviewed__c
             });
 
-            // Build encodedRows for slot categories that actually have files attached.
+            // Build encodedRows only for attached files that do not already have stored AI feedback.
             if (fc > 0 && docIdsByCatId.containsKey(c.Id)) {
                 PartyContext party = resolvePartyForCategory(c, categoriesById, partyByAccountId);
+                Map<String, StoredReview> storedReviews = parseStoredReviews(c.AI_Review_Feedback_JSON__c);
                 for (Id docId : docIdsByCatId.get(c.Id)) {
-                    res.encodedRows.add(String.valueOf(docId)
-                        + '|' + nullToEmpty(c.clcommon__Category_Name__c)
-                        + '|' + nullToEmpty(party.partyName)
-                        + '|' + nullToEmpty(party.partyType));
+                    StoredReview storedReview = storedReviews.get(String.valueOf(docId));
+                    if (storedReview != null && storedReview.hasCompleteReview()) {
+                        res.reviewedClassificationJsonStrings.add(storedReview.classificationJson);
+                        res.reviewedSanityJsonStrings.add(storedReview.sanityJson);
+                    } else {
+                        res.encodedRows.add(String.valueOf(docId)
+                            + '|' + nullToEmpty(c.clcommon__Category_Name__c)
+                            + '|' + nullToEmpty(party.partyName)
+                            + '|' + nullToEmpty(party.partyType)
+                            + '|' + String.valueOf(c.Id));
+                    }
                 }
             }
         }
@@ -241,7 +260,89 @@ public with sharing class AIDocCoverageCheck {
         res.filledCount = filledCount;
         res.missingCount = missingCount;
         res.borrowerName = borrowerNameJoined;
+        res.reviewedClassificationJson = mergeJsonItems(res.reviewedClassificationJsonStrings);
+        res.reviewedSanityJson = mergeJsonItems(res.reviewedSanityJsonStrings);
         return res;
+    }
+
+    private static Map<String, StoredReview> parseStoredReviews(String feedbackJson) {
+        Map<String, StoredReview> reviewsByDocId = new Map<String, StoredReview>();
+        if (String.isBlank(feedbackJson)) {
+            return reviewsByDocId;
+        }
+
+        try {
+            Object parsed = JSON.deserializeUntyped(feedbackJson);
+            if (!(parsed instanceof Map<String, Object>)) {
+                return reviewsByDocId;
+            }
+            Map<String, Object> rawByDocId = (Map<String, Object>) parsed;
+            for (String docId : rawByDocId.keySet()) {
+                Object rawReview = rawByDocId.get(docId);
+                if (rawReview instanceof Map<String, Object>) {
+                    Map<String, Object> reviewMap = (Map<String, Object>) rawReview;
+                    reviewsByDocId.put(docId, new StoredReview(
+                        valueAsString(reviewMap.get(CLASSIFICATION_JSON_KEY)),
+                        valueAsString(reviewMap.get(SANITY_JSON_KEY))
+                    ));
+                }
+            }
+        } catch (Exception ignored) {
+            return new Map<String, StoredReview>();
+        }
+        return reviewsByDocId;
+    }
+
+    private static String mergeJsonItems(List<String> jsonStrings) {
+        if (jsonStrings == null || jsonStrings.isEmpty()) {
+            return '{"items":[]}';
+        }
+
+        List<Object> allItems = new List<Object>();
+        for (String jsonString : jsonStrings) {
+            if (String.isBlank(jsonString)) {
+                continue;
+            }
+            addJsonItems(allItems, jsonString);
+        }
+        return JSON.serialize(new Map<String, Object>{ 'items' => allItems });
+    }
+
+    private static void addJsonItems(List<Object> allItems, String rawJson) {
+        String cleaned = extractJsonObject(rawJson);
+        if (String.isBlank(cleaned)) {
+            return;
+        }
+        try {
+            Map<String, Object> parsed = (Map<String, Object>) JSON.deserializeUntyped(cleaned);
+            Object items = parsed.get('items');
+            if (items instanceof List<Object>) {
+                allItems.addAll((List<Object>) items);
+            }
+        } catch (Exception ignored) {
+            allItems.add(new Map<String, Object>{
+                'documentName' => 'Unknown',
+                'status' => 'UNREADABLE',
+                'severity' => 'warning',
+                'detail' => cleaned.left(240)
+            });
+        }
+    }
+
+    private static String extractJsonObject(String rawJson) {
+        String cleaned = rawJson == null ? '' : rawJson.trim();
+        if (cleaned.startsWith('```')) {
+            Integer jsonStart = cleaned.indexOf('{');
+            Integer jsonEnd = cleaned.lastIndexOf('}');
+            if (jsonStart >= 0 && jsonEnd > jsonStart) {
+                return cleaned.substring(jsonStart, jsonEnd + 1);
+            }
+        }
+        return cleaned;
+    }
+
+    private static String valueAsString(Object value) {
+        return value == null ? '' : String.valueOf(value);
     }
 
     public class Request {
@@ -270,8 +371,14 @@ public with sharing class AIDocCoverageCheck {
         @InvocableVariable(label='Borrower Name' description='Comma-joined BORROWER party names from clcommon__Party__c. Empty if none.')
         public String borrowerName;
 
-        @InvocableVariable(label='Encoded Rows' description='One pipe-encoded "<docId>|<categoryName>|<partyName>|<partyType>" string per attached file.')
+        @InvocableVariable(label='Encoded Rows' description='One pipe-encoded "<docId>|<categoryName>|<partyName>|<partyType>|<categoryId>" string per attached file that still needs AI review.')
         public List<String> encodedRows;
+
+        @InvocableVariable(label='Reviewed Classification JSON' description='Merged classification JSON from files already stored on document categories.')
+        public String reviewedClassificationJson;
+
+        @InvocableVariable(label='Reviewed Sanity JSON' description='Merged sanity-check JSON from files already stored on document categories.')
+        public String reviewedSanityJson;
 
         @InvocableVariable(label='Error Message' description='Error details if the action failed')
         public String errorMessage;
@@ -279,8 +386,13 @@ public with sharing class AIDocCoverageCheck {
         @InvocableVariable(label='Error Type' description='Exception type if the action failed')
         public String errorType;
 
+        private List<String> reviewedClassificationJsonStrings;
+        private List<String> reviewedSanityJsonStrings;
+
         public Response() {
             this.encodedRows = new List<String>();
+            this.reviewedClassificationJsonStrings = new List<String>();
+            this.reviewedSanityJsonStrings = new List<String>();
         }
     }
 
@@ -290,6 +402,20 @@ public with sharing class AIDocCoverageCheck {
         public PartyContext(String partyName, String partyType) {
             this.partyName = partyName;
             this.partyType = partyType;
+        }
+    }
+
+    private class StoredReview {
+        public String classificationJson;
+        public String sanityJson;
+
+        public StoredReview(String classificationJson, String sanityJson) {
+            this.classificationJson = classificationJson;
+            this.sanityJson = sanityJson;
+        }
+
+        public Boolean hasCompleteReview() {
+            return String.isNotBlank(classificationJson) && String.isNotBlank(sanityJson);
         }
     }
 }

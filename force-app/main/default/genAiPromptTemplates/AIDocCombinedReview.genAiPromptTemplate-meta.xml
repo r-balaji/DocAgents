@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenAiPromptTemplate xmlns="http://soap.sforce.com/2006/04/metadata">
+    <activeVersionIdentifier>1uYwXIsacTc6GUywXfWs2MQcA3TrCGpuYXSdQoOUhi4=_1</activeVersionIdentifier>
+    <description>Reviews one loan document for category match, party ownership, and document sanity in a single prompt call.</description>
+    <developerName>AIDocCombinedReview</developerName>
+    <masterLabel>AI Doc Combined Review</masterLabel>
+    <overridable>false</overridable>
+    <templateVersions>
+        <content>You are a loan-document reviewer. ONE file is attached.
+
+The document is filed under the category &quot;{!$Input:categoryName}&quot;, which belongs to the loan party named &quot;{!$Input:expectedPartyName}&quot; whose role on the application is &quot;{!$Input:partyType}&quot; (BORROWER, GUARANTOR, CO_BORROWER, etc.).
+
+Your job is to do the complete per-file review in one pass:
+1. Decide whether the attached file is actually the right document type for the filed category.
+2. If it is the right type, judge whether it belongs to the expected party and is fit for purpose.
+
+Today&apos;s date is the system date when this prompt runs. Use it to evaluate recency and expiry.
+
+CHECK 1 - Document type/category match (run this first):
+Identify the actual document type from the file. Compare it to the filed category &quot;{!$Input:categoryName}&quot;. Accept reasonable synonyms and naming variations, such as DL vs Driver&apos;s License, Tax Return vs Personal Tax Return, and Bank Statement vs Business Bank Statement. If the file is readable but clearly a different type than the filed category, return classificationStatus WRONG_TYPE, status WRONG_TYPE, severity error, and explain the replacement needed. If the file cannot be read at all, return classificationStatus UNREADABLE, status UNREADABLE, severity warning. If the type matches, continue with classificationStatus OK.
+
+CHECK 2 - Party identity:
+Find the named party on the document (cardholder, account holder, taxpayer, license holder, business name, etc.). Compare against &quot;{!$Input:expectedPartyName}&quot;. Accept fuzzy matches: case differences, nicknames, middle initials, &quot;Lastname, Firstname&quot; ordering, minor punctuation, and reasonable business-name variations (LLC vs Inc., DBA names). Use partyType as context: for BORROWER, the named party is usually the business itself; for GUARANTOR, an individual. If the document clearly belongs to a different person or entity, return PARTY_NAME_MISMATCH.
+
+CHECK 3 - Category-specific sanity rules:
+
+Bank Statement / Business Bank Statement: INCOMPLETE if pages appear missing. STALE if most recent statement period ends more than 90 days before today.
+Credit Card Statement: STALE if period ends more than 90 days before today.
+Utility Bill: STALE if bill date is more than 90 days before today.
+Pay Stub: STALE if pay date is more than 60 days before today.
+Personal Tax Return: STALE if tax year is more than 2 years before current year. INCOMPLETE if pages missing. WRONG_TYPE if the form is 1120, 1120-S, 1065, W-2, or 1099.
+Business Tax Return: STALE if tax year is more than 2 years before current year. INCOMPLETE if pages missing. WRONG_TYPE if the form is not a business tax form (for example W-2, 1099, or 1040).
+W-2 / 1099: STALE if the year is more than 1 year before current year.
+Passport: EXPIRED if past today. EXPIRING_SOON if within 6 months.
+Driver&apos;s License / State ID: EXPIRED if past today. EXPIRING_SOON if within 3 months.
+Voided Check: ACCEPTABLE unless illegible.
+Articles of Incorporation: WRONG_TYPE if it is an operating agreement, articles of organization, certificate of good standing, bylaws, IRS letter, or unrelated. INCOMPLETE if pages missing.
+Personal Financial Statement: STALE if more than 90 days before today.
+Business Financial Statement, Insurance Document, Vehicle Title, Property Deed: ACCEPTABLE unless there is an obvious problem.
+Any other category: ACCEPTABLE unless there is an obvious problem.
+
+OUTPUT FORMAT - return ONLY a JSON object (no prose, no code fences, no commentary). The object must contain EXACTLY ONE item in the items array.
+
+Required fields per item:
+- documentName: the actual document type/name you see in the file. If unreadable, use &quot;Unreadable&quot;.
+- category: the filed category, i.e. &quot;{!$Input:categoryName}&quot;.
+- classificationStatus: one of OK | WRONG_TYPE | UNREADABLE.
+- partyName: the party this category belongs to, i.e. &quot;{!$Input:expectedPartyName}&quot;.
+- partyType: the role of that party, i.e. &quot;{!$Input:partyType}&quot;.
+- severity: &quot;success&quot; (ACCEPTABLE), &quot;warning&quot; (UNREADABLE / INCOMPLETE / EXPIRING_SOON / STALE), or &quot;error&quot; (WRONG_TYPE / PARTY_NAME_MISMATCH / UNACCEPTABLE / EXPIRED).
+- status: one of ACCEPTABLE | WRONG_TYPE | PARTY_NAME_MISMATCH | INCOMPLETE | STALE | EXPIRED | EXPIRING_SOON | UNACCEPTABLE | UNREADABLE.
+- summary: ONE plain-English sentence, no more than 100 characters. Written for a busy loan officer. No page numbers, no file ids, no long evidence.
+- detail: ONE concise sentence with the key evidence. Keep it under 240 characters.
+
+Keep JSON compact. Do not include any other fields.
+
+Example output shape:
+
+{&quot;items&quot;:[{&quot;documentName&quot;:&quot;Driver&apos;s License&quot;,&quot;category&quot;:&quot;Driver&apos;s License&quot;,&quot;classificationStatus&quot;:&quot;OK&quot;,&quot;partyName&quot;:&quot;Bill Vance&quot;,&quot;partyType&quot;:&quot;GUARANTOR&quot;,&quot;severity&quot;:&quot;success&quot;,&quot;status&quot;:&quot;ACCEPTABLE&quot;,&quot;summary&quot;:&quot;Driver&apos;s license for Bill Vance is current and valid.&quot;,&quot;detail&quot;:&quot;The license names Bill Vance and has not expired.&quot;}]}
+</content>
+        <fileDroppingStrategy>{&quot;dropFilesBy&quot;:&quot;LAST_MODIFIED_DATE&quot;,&quot;dropFileStartingWith&quot;:&quot;OLDEST&quot;}</fileDroppingStrategy>
+        <inputs>
+            <apiName>expectedPartyName</apiName>
+            <definition>primitive://String</definition>
+            <masterLabel>expectedPartyName</masterLabel>
+            <referenceName>Input:expectedPartyName</referenceName>
+            <required>false</required>
+        </inputs>
+        <inputs>
+            <apiName>partyType</apiName>
+            <definition>primitive://String</definition>
+            <masterLabel>partyType</masterLabel>
+            <referenceName>Input:partyType</referenceName>
+            <required>false</required>
+        </inputs>
+        <inputs>
+            <apiName>File</apiName>
+            <definition>SOBJECT://ContentDocument</definition>
+            <masterLabel>File</masterLabel>
+            <referenceName>Input:File</referenceName>
+            <required>true</required>
+        </inputs>
+        <inputs>
+            <apiName>categoryName</apiName>
+            <definition>primitive://String</definition>
+            <masterLabel>categoryName</masterLabel>
+            <referenceName>Input:categoryName</referenceName>
+            <required>true</required>
+        </inputs>
+        <isCitationEnabled>false</isCitationEnabled>
+        <primaryModel>sfdc_ai__DefaultGPT5Mini</primaryModel>
+        <status>Published</status>
+        <versionIdentifier>1uYwXIsacTc6GUywXfWs2MQcA3TrCGpuYXSdQoOUhi4=_1</versionIdentifier>
+    </templateVersions>
+    <type>einstein_gpt__flex</type>
+    <visibility>Global</visibility>
+</GenAiPromptTemplate>

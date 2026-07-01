@@ -26,7 +26,7 @@ export default class AiDocumentReview extends LightningElement {
     get classificationItems() {
         const parsed = this.safeParse(this.classificationJson, { items: [] });
         return (parsed.items || []).map((item, index) => {
-            const status = (item.status || 'UNKNOWN').trim();
+            const status = (item.classificationStatus || item.typeStatus || item.status || 'UNKNOWN').trim();
             return {
                 key: `cls-${index}`,
                 documentName: item.documentName || item.category || 'Document',

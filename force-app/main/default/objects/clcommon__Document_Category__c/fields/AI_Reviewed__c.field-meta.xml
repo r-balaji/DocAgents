@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AI_Reviewed__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Indicates whether every current file attached to this document category has an AI Document Review verdict stored.</description>
+    <inlineHelpText>Auto-managed. Cleared when a new file is attached and checked again when all current file ids have stored review feedback.</inlineHelpText>
+    <label>AI Reviewed</label>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

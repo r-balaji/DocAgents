@@ -8,7 +8,7 @@
         <actionName>AIDocCoverageCheck</actionName>
         <actionType>apex</actionType>
         <connector>
-            <targetReference>Loop_Files</targetReference>
+            <targetReference>Seed_Stored_Verdicts</targetReference>
         </connector>
         <flowTransactionModel>Automatic</flowTransactionModel>
         <inputParameters>
@@ -39,6 +39,45 @@
             </value>
         </inputParameters>
         <nameSegment>AIDocSplitFileRow</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Save_Review_Result</name>
+        <label>Save Review Result</label>
+        <locationX>264</locationX>
+        <locationY>680</locationY>
+        <actionName>AIDocReviewResultStore</actionName>
+        <actionType>apex</actionType>
+        <connector>
+            <targetReference>Append_Verdict</targetReference>
+        </connector>
+        <flowTransactionModel>Automatic</flowTransactionModel>
+        <inputParameters>
+            <name>classificationJson</name>
+            <value>
+                <elementReference>Call_Verify_Subflow.verdictLine</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>documentCategoryId</name>
+            <value>
+                <elementReference>Split_Row.documentCategoryId</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>fileContentDocumentId</name>
+            <value>
+                <elementReference>Split_Row.fileContentDocumentId</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>sanityJson</name>
+            <value>
+                <elementReference>Call_Verify_Subflow.sanityLine</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocReviewResultStore</nameSegment>
         <offset>0</offset>
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </actionCalls>
@@ -74,7 +113,7 @@
         <label>Call Email Prompt</label>
         <locationX>176</locationX>
         <locationY>820</locationY>
-        <actionName>AIDocBorrowerEmail</actionName>
+        <actionName>AIDocBorrowerEmailCombined</actionName>
         <actionType>generatePromptResponse</actionType>
         <connector>
             <targetReference>Save_Email_Template</targetReference>
@@ -107,7 +146,7 @@
                 <elementReference>Merge_Json.sanityMergedJson</elementReference>
             </value>
         </inputParameters>
-        <nameSegment>AIDocBorrowerEmail</nameSegment>
+        <nameSegment>AIDocBorrowerEmailCombined</nameSegment>
         <offset>0</offset>
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </actionCalls>
@@ -143,6 +182,29 @@
     </actionCalls>
     <apiVersion>62.0</apiVersion>
     <areMetricsLoggedToDataCloud>false</areMetricsLoggedToDataCloud>
+    <assignments>
+        <name>Seed_Stored_Verdicts</name>
+        <label>Seed Stored Verdicts</label>
+        <locationX>176</locationX>
+        <locationY>220</locationY>
+        <assignmentItems>
+            <assignToReference>classificationJsonList</assignToReference>
+            <operator>Add</operator>
+            <value>
+                <elementReference>Run_Coverage_Check.reviewedClassificationJson</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>sanityJsonList</assignToReference>
+            <operator>Add</operator>
+            <value>
+                <elementReference>Run_Coverage_Check.reviewedSanityJson</elementReference>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>Loop_Files</targetReference>
+        </connector>
+    </assignments>
     <assignments>
         <name>Append_Verdict</name>
         <label>Append Verdict</label>
@@ -251,7 +313,7 @@
         <locationX>264</locationX>
         <locationY>620</locationY>
         <connector>
-            <targetReference>Append_Verdict</targetReference>
+            <targetReference>Save_Review_Result</targetReference>
         </connector>
         <flowName>AIDocVerifyOneFile</flowName>
         <inputAssignments>
