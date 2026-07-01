@@ -6,16 +6,21 @@ private class AIDocSplitFileRowTest {
 
     @IsTest
     static void shouldSplitDocIdAndCategoryName_WhenWellFormed() {
+        String contentDocumentId = 'content-document-id';
+        String documentCategoryId = 'document-category-id';
         AIDocSplitFileRow.Request req = new AIDocSplitFileRow.Request();
-        req.encodedRow = '069a500000G7R0gAAF|Latest Personal Tax Forms';
+        req.encodedRow = contentDocumentId + '|Latest Personal Tax Forms|Vance Electric|BORROWER|' + documentCategoryId;
 
         Test.startTest();
         List<AIDocSplitFileRow.Response> out =
             AIDocSplitFileRow.execute(new List<AIDocSplitFileRow.Request>{ req });
         Test.stopTest();
 
-        Assert.areEqual('069a500000G7R0gAAF', out[0].fileContentDocumentId, 'docId parsed');
+        Assert.areEqual(contentDocumentId, out[0].fileContentDocumentId, 'docId parsed');
         Assert.areEqual('Latest Personal Tax Forms', out[0].categoryName, 'categoryName parsed');
+        Assert.areEqual('Vance Electric', out[0].partyName, 'partyName parsed');
+        Assert.areEqual('BORROWER', out[0].partyType, 'partyType parsed');
+        Assert.areEqual(documentCategoryId, out[0].documentCategoryId, 'category id parsed');
     }
 
     @IsTest
@@ -30,6 +35,7 @@ private class AIDocSplitFileRowTest {
 
         Assert.areEqual('', out[0].fileContentDocumentId, 'blank docId for null input');
         Assert.areEqual('', out[0].categoryName, 'blank categoryName for null input');
+        Assert.areEqual('', out[0].documentCategoryId, 'blank category id for null input');
     }
 
     @IsTest

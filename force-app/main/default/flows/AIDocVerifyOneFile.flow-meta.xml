@@ -1,38 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Flow xmlns="http://soap.sforce.com/2006/04/metadata">
     <actionCalls>
-        <name>Run_Classify</name>
-        <label>Run Classify</label>
-        <locationX>176</locationX>
-        <locationY>242</locationY>
-        <actionName>AIDocClassifyFile</actionName>
-        <actionType>generatePromptResponse</actionType>
-        <connector>
-            <targetReference>Run_Sanity</targetReference>
-        </connector>
-        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
-        <inputParameters>
-            <name>Input:File</name>
-            <value>
-                <elementReference>Get_File</elementReference>
-            </value>
-        </inputParameters>
-        <inputParameters>
-            <name>Input:expectedCategory</name>
-            <value>
-                <elementReference>categoryName</elementReference>
-            </value>
-        </inputParameters>
-        <nameSegment>AIDocClassifyFile</nameSegment>
-        <offset>0</offset>
-        <storeOutputAutomatically>true</storeOutputAutomatically>
-    </actionCalls>
-    <actionCalls>
         <name>Run_Sanity</name>
         <label>Run Sanity</label>
         <locationX>176</locationX>
-        <locationY>350</locationY>
-        <actionName>AIDocSanityCheck</actionName>
+        <locationY>242</locationY>
+        <actionName>AIDocCombinedReview</actionName>
         <actionType>generatePromptResponse</actionType>
         <connector>
             <targetReference>Set_Outputs</targetReference>
@@ -62,7 +35,7 @@
                 <elementReference>partyType</elementReference>
             </value>
         </inputParameters>
-        <nameSegment>AIDocSanityCheck</nameSegment>
+        <nameSegment>AIDocCombinedReview</nameSegment>
         <offset>0</offset>
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </actionCalls>
@@ -72,12 +45,12 @@
         <name>Set_Outputs</name>
         <label>Set Outputs</label>
         <locationX>176</locationX>
-        <locationY>458</locationY>
+        <locationY>350</locationY>
         <assignmentItems>
             <assignToReference>verdictLine</assignToReference>
             <operator>Assign</operator>
             <value>
-                <elementReference>Run_Classify.promptResponse</elementReference>
+                <elementReference>Run_Sanity.promptResponse</elementReference>
             </value>
         </assignmentItems>
         <assignmentItems>
@@ -88,7 +61,7 @@
             </value>
         </assignmentItems>
     </assignments>
-    <description>Subflow: runs Classify and Sanity AI prompts for a single file and returns the result lines.</description>
+    <description>Subflow: runs the combined AI document sanity prompt for a single file and returns the result payload.</description>
     <environments>Default</environments>
     <interviewLabel>AI Doc Verify One File {!$Flow.CurrentDateTime}</interviewLabel>
     <label>AI Doc Verify One File</label>
@@ -112,7 +85,7 @@
         <locationY>134</locationY>
         <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
         <connector>
-            <targetReference>Run_Classify</targetReference>
+            <targetReference>Run_Sanity</targetReference>
         </connector>
         <filterLogic>and</filterLogic>
         <filters>

@@ -4,6 +4,10 @@
  */
 @isTest
 private class AIDocCoverageCheckTest {
+    private static final String CLASSIFICATION_JSON =
+        '{"items":[{"documentName":"Passport","category":"Passport","status":"OK"}]}';
+    private static final String SANITY_JSON =
+        '{"items":[{"documentName":"Passport","severity":"success","status":"ACCEPTABLE","summary":"Passport is current."}]}';
 
     // ─── Positive Tests ───────────────────────────────────────────────────
 
@@ -88,8 +92,7 @@ private class AIDocCoverageCheckTest {
         // Two apps with different shapes.
         genesis__Applications__c appA = AIDocTestFactory.createApplication(true);
         genesis__Applications__c appB = AIDocTestFactory.createApplication(true);
-        List<clcommon__Document_Category__c> leavesA =
-            AIDocTestFactory.createCategories(appA.Id, 2, true);
+        AIDocTestFactory.createCategories(appA.Id, 2, true);
         List<clcommon__Document_Category__c> leavesB =
             AIDocTestFactory.createCategories(appB.Id, 4, true);
         AIDocTestFactory.attachFile(leavesB[0].Id, 'fileB1');
@@ -238,10 +241,45 @@ private class AIDocCoverageCheckTest {
         for (String row : out[0].encodedRows) {
             Assert.isTrue(row.contains('|'), 'row should contain pipe delimiter');
             List<String> parts = row.split('\\|', -1);
-            Assert.areEqual(4, parts.size(), 'row should have 4 parts');
+            Assert.areEqual(5, parts.size(), 'row should have 5 parts');
             actualDocIds.add(parts[0]);
+            Assert.isNotNull(parts[4], 'category id should be present');
         }
         Assert.areEqual(expectedDocIds, actualDocIds, 'doc ids pipe-encoded in rows');
+    }
+
+    @isTest
+    static void shouldSkipEncodedRowAndReturnStoredVerdicts_WhenFileAlreadyReviewed() {
+        genesis__Applications__c app = AIDocTestFactory.createApplication(true);
+        List<clcommon__Document_Category__c> leaves =
+            AIDocTestFactory.createCategories(app.Id, 1, true);
+        ContentDocumentLink link = AIDocTestFactory.attachFile(leaves[0].Id, 'passport');
+        update new clcommon__Document_Category__c(
+            Id = leaves[0].Id,
+            AI_Reviewed__c = true,
+            AI_Review_Feedback_JSON__c = JSON.serialize(new Map<String, Object>{
+                String.valueOf(link.ContentDocumentId) => new Map<String, Object>{
+                    'classificationJson' => CLASSIFICATION_JSON,
+                    'sanityJson' => SANITY_JSON
+                }
+            })
+        );
+
+        AIDocCoverageCheck.Request req = new AIDocCoverageCheck.Request();
+        req.applicationId = app.Id;
+
+        Test.startTest();
+        List<AIDocCoverageCheck.Response> out = AIDocCoverageCheck.execute(
+            new List<AIDocCoverageCheck.Request>{ req });
+        Test.stopTest();
+
+        Assert.areEqual(0, out[0].encodedRows.size(), 'reviewed file should not be sent to LLM again');
+        Map<String, Object> classification =
+            (Map<String, Object>) JSON.deserializeUntyped(out[0].reviewedClassificationJson);
+        Map<String, Object> sanity =
+            (Map<String, Object>) JSON.deserializeUntyped(out[0].reviewedSanityJson);
+        Assert.areEqual(1, ((List<Object>) classification.get('items')).size(), 'stored classification should be returned');
+        Assert.areEqual(1, ((List<Object>) sanity.get('items')).size(), 'stored sanity verdict should be returned');
     }
 
     @isTest

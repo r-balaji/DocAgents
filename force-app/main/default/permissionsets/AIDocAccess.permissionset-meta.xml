@@ -22,6 +22,10 @@
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
+        <apexClass>AIDocReviewResultStore</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>SplitJobService</apexClass>
         <enabled>true</enabled>
     </classAccesses>
@@ -51,6 +55,16 @@
     <fieldPermissions>
         <editable>true</editable>
         <field>genesis__Applications__c.Email_Template__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>clcommon__Document_Category__c.AI_Reviewed__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>clcommon__Document_Category__c.AI_Review_Feedback_JSON__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <!-- Source_ContentDocument_Id__c, Library_Id__c, Status__c are required fields - implicit FLS. -->
