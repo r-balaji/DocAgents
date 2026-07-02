@@ -80,4 +80,37 @@ private class AIDocWriteEmailTemplateTest {
         Assert.areEqual(false, out[0].success, 'should fail');
         Assert.isTrue(String.isNotBlank(out[0].errorMessage), 'errorMessage populated');
     }
+
+    @IsTest
+    static void shouldBulkSaveEmails_WhenMultipleRequestsProvided() {
+        genesis__Applications__c firstApp = AIDocTestFactory.createApplication(true);
+        genesis__Applications__c secondApp = AIDocTestFactory.createApplication(true);
+
+        AIDocWriteEmailTemplate.Request firstReq = new AIDocWriteEmailTemplate.Request();
+        firstReq.applicationId = firstApp.Id;
+        firstReq.emailText = 'First body';
+
+        AIDocWriteEmailTemplate.Request secondReq = new AIDocWriteEmailTemplate.Request();
+        secondReq.applicationId = secondApp.Id;
+        secondReq.emailText = 'Second body';
+
+        Test.startTest();
+        List<AIDocWriteEmailTemplate.Response> out =
+            AIDocWriteEmailTemplate.execute(new List<AIDocWriteEmailTemplate.Request>{ firstReq, secondReq });
+        Test.stopTest();
+
+        Assert.areEqual(2, out.size(), 'one response per request');
+        Assert.areEqual(true, out[0].success, 'first update should succeed');
+        Assert.areEqual(true, out[1].success, 'second update should succeed');
+
+        Map<Id, genesis__Applications__c> savedById = new Map<Id, genesis__Applications__c>([
+            SELECT Id, Email_Template__c
+            FROM genesis__Applications__c
+            WHERE Id IN :new Set<Id>{ firstApp.Id, secondApp.Id }
+        ]);
+        Assert.areEqual('First body', savedById.get(firstApp.Id).Email_Template__c,
+            'first application should be updated');
+        Assert.areEqual('Second body', savedById.get(secondApp.Id).Email_Template__c,
+            'second application should be updated');
+    }
 }

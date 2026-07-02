@@ -1,6 +1,75 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Flow xmlns="http://soap.sforce.com/2006/04/metadata">
     <actionCalls>
+        <name>Call_Email_Prompt</name>
+        <label>Call Email Prompt</label>
+        <locationX>176</locationX>
+        <locationY>820</locationY>
+        <actionName>AIDocBorrowerEmailCombined</actionName>
+        <actionType>generatePromptResponse</actionType>
+        <connector>
+            <targetReference>Save_Email_Template</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Show_Result</targetReference>
+        </faultConnector>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>Input:borrowerName</name>
+            <value>
+                <elementReference>Run_Coverage_Check.borrowerName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:coverageJson</name>
+            <value>
+                <elementReference>Run_Coverage_Check.coverageJson</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:verdictsText</name>
+            <value>
+                <elementReference>Merge_Json.classificationMergedJson</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:sanityFindingsText</name>
+            <value>
+                <elementReference>Merge_Json.sanityMergedJson</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocBorrowerEmailCombined</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Merge_Json</name>
+        <label>Merge JSON</label>
+        <locationX>176</locationX>
+        <locationY>780</locationY>
+        <actionName>AIDocMergeJsonItems</actionName>
+        <actionType>apex</actionType>
+        <connector>
+            <targetReference>Call_Email_Prompt</targetReference>
+        </connector>
+        <flowTransactionModel>Automatic</flowTransactionModel>
+        <inputParameters>
+            <name>classificationJsonStrings</name>
+            <value>
+                <elementReference>classificationJsonList</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>sanityJsonStrings</name>
+            <value>
+                <elementReference>sanityJsonList</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocMergeJsonItems</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
         <name>Run_Coverage_Check</name>
         <label>Run Coverage Check</label>
         <locationX>176</locationX>
@@ -22,23 +91,32 @@
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </actionCalls>
     <actionCalls>
-        <name>Split_Row</name>
-        <label>Split Row</label>
-        <locationX>264</locationX>
-        <locationY>520</locationY>
-        <actionName>AIDocSplitFileRow</actionName>
+        <name>Save_Email_Template</name>
+        <label>Save Email Template</label>
+        <locationX>176</locationX>
+        <locationY>880</locationY>
+        <actionName>AIDocWriteEmailTemplate</actionName>
         <actionType>apex</actionType>
         <connector>
-            <targetReference>Call_Verify_Subflow</targetReference>
+            <targetReference>Show_Result</targetReference>
         </connector>
+        <faultConnector>
+            <targetReference>Show_Result</targetReference>
+        </faultConnector>
         <flowTransactionModel>Automatic</flowTransactionModel>
         <inputParameters>
-            <name>encodedRow</name>
+            <name>applicationId</name>
             <value>
-                <elementReference>Loop_Files</elementReference>
+                <elementReference>recordId</elementReference>
             </value>
         </inputParameters>
-        <nameSegment>AIDocSplitFileRow</nameSegment>
+        <inputParameters>
+            <name>emailText</name>
+            <value>
+                <elementReference>Call_Email_Prompt.promptResponse</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocWriteEmailTemplate</nameSegment>
         <offset>0</offset>
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </actionCalls>
@@ -82,106 +160,51 @@
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </actionCalls>
     <actionCalls>
-        <name>Merge_Json</name>
-        <label>Merge JSON</label>
-        <locationX>176</locationX>
-        <locationY>780</locationY>
-        <actionName>AIDocMergeJsonItems</actionName>
+        <name>Split_Row</name>
+        <label>Split Row</label>
+        <locationX>264</locationX>
+        <locationY>520</locationY>
+        <actionName>AIDocSplitFileRow</actionName>
         <actionType>apex</actionType>
         <connector>
-            <targetReference>Call_Email_Prompt</targetReference>
+            <targetReference>Call_Verify_Subflow</targetReference>
         </connector>
         <flowTransactionModel>Automatic</flowTransactionModel>
         <inputParameters>
-            <name>classificationJsonStrings</name>
+            <name>encodedRow</name>
             <value>
-                <elementReference>classificationJsonList</elementReference>
+                <elementReference>Loop_Files</elementReference>
             </value>
         </inputParameters>
-        <inputParameters>
-            <name>sanityJsonStrings</name>
-            <value>
-                <elementReference>sanityJsonList</elementReference>
-            </value>
-        </inputParameters>
-        <nameSegment>AIDocMergeJsonItems</nameSegment>
-        <offset>0</offset>
-        <storeOutputAutomatically>true</storeOutputAutomatically>
-    </actionCalls>
-    <actionCalls>
-        <name>Call_Email_Prompt</name>
-        <label>Call Email Prompt</label>
-        <locationX>176</locationX>
-        <locationY>820</locationY>
-        <actionName>AIDocBorrowerEmailCombined</actionName>
-        <actionType>generatePromptResponse</actionType>
-        <connector>
-            <targetReference>Save_Email_Template</targetReference>
-        </connector>
-        <faultConnector>
-            <targetReference>Show_Result</targetReference>
-        </faultConnector>
-        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
-        <inputParameters>
-            <name>Input:borrowerName</name>
-            <value>
-                <elementReference>Run_Coverage_Check.borrowerName</elementReference>
-            </value>
-        </inputParameters>
-        <inputParameters>
-            <name>Input:coverageJson</name>
-            <value>
-                <elementReference>Run_Coverage_Check.coverageJson</elementReference>
-            </value>
-        </inputParameters>
-        <inputParameters>
-            <name>Input:verdictsText</name>
-            <value>
-                <elementReference>Merge_Json.classificationMergedJson</elementReference>
-            </value>
-        </inputParameters>
-        <inputParameters>
-            <name>Input:sanityFindingsText</name>
-            <value>
-                <elementReference>Merge_Json.sanityMergedJson</elementReference>
-            </value>
-        </inputParameters>
-        <nameSegment>AIDocBorrowerEmailCombined</nameSegment>
-        <offset>0</offset>
-        <storeOutputAutomatically>true</storeOutputAutomatically>
-    </actionCalls>
-    <actionCalls>
-        <name>Save_Email_Template</name>
-        <label>Save Email Template</label>
-        <locationX>176</locationX>
-        <locationY>880</locationY>
-        <actionName>AIDocWriteEmailTemplate</actionName>
-        <actionType>apex</actionType>
-        <connector>
-            <targetReference>Show_Result</targetReference>
-        </connector>
-        <faultConnector>
-            <targetReference>Show_Result</targetReference>
-        </faultConnector>
-        <flowTransactionModel>Automatic</flowTransactionModel>
-        <inputParameters>
-            <name>applicationId</name>
-            <value>
-                <elementReference>recordId</elementReference>
-            </value>
-        </inputParameters>
-        <inputParameters>
-            <name>emailText</name>
-            <value>
-                <elementReference>Call_Email_Prompt.promptResponse</elementReference>
-            </value>
-        </inputParameters>
-        <nameSegment>AIDocWriteEmailTemplate</nameSegment>
+        <nameSegment>AIDocSplitFileRow</nameSegment>
         <offset>0</offset>
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </actionCalls>
     <apiVersion>62.0</apiVersion>
     <areMetricsLoggedToDataCloud>false</areMetricsLoggedToDataCloud>
+    <assignments>
+        <name>Append_Verdict</name>
+        <label>Append Verdict</label>
+        <locationX>264</locationX>
+        <locationY>700</locationY>
+        <assignmentItems>
+            <assignToReference>classificationJsonList</assignToReference>
+            <operator>Add</operator>
+            <value>
+                <elementReference>Save_Review_Result.classificationJson</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>sanityJsonList</assignToReference>
+            <operator>Add</operator>
+            <value>
+                <elementReference>Save_Review_Result.sanityJson</elementReference>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>Loop_Files</targetReference>
+        </connector>
+    </assignments>
     <assignments>
         <name>Seed_Stored_Verdicts</name>
         <label>Seed Stored Verdicts</label>
@@ -199,29 +222,6 @@
             <operator>Add</operator>
             <value>
                 <elementReference>Run_Coverage_Check.reviewedSanityJson</elementReference>
-            </value>
-        </assignmentItems>
-        <connector>
-            <targetReference>Loop_Files</targetReference>
-        </connector>
-    </assignments>
-    <assignments>
-        <name>Append_Verdict</name>
-        <label>Append Verdict</label>
-        <locationX>264</locationX>
-        <locationY>700</locationY>
-        <assignmentItems>
-            <assignToReference>classificationJsonList</assignToReference>
-            <operator>Add</operator>
-            <value>
-                <elementReference>Call_Verify_Subflow.verdictLine</elementReference>
-            </value>
-        </assignmentItems>
-        <assignmentItems>
-            <assignToReference>sanityJsonList</assignToReference>
-            <operator>Add</operator>
-            <value>
-                <elementReference>Call_Verify_Subflow.sanityLine</elementReference>
             </value>
         </assignmentItems>
         <connector>
@@ -290,7 +290,11 @@
                     <elementReference>Merge_Json.sanityMergedJson</elementReference>
                 </value>
             </inputParameters>
+            <isRequired>true</isRequired>
             <styleProperties>
+                <verticalAlignment>
+                    <stringValue>top</stringValue>
+                </verticalAlignment>
                 <width>
                     <stringValue>12</stringValue>
                 </width>
@@ -343,17 +347,17 @@
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </subflows>
     <variables>
-        <name>recordId</name>
-        <dataType>String</dataType>
-        <isCollection>false</isCollection>
-        <isInput>true</isInput>
-        <isOutput>false</isOutput>
-    </variables>
-    <variables>
         <name>classificationJsonList</name>
         <dataType>String</dataType>
         <isCollection>true</isCollection>
         <isInput>false</isInput>
+        <isOutput>false</isOutput>
+    </variables>
+    <variables>
+        <name>recordId</name>
+        <dataType>String</dataType>
+        <isCollection>false</isCollection>
+        <isInput>true</isInput>
         <isOutput>false</isOutput>
     </variables>
     <variables>

@@ -26,6 +26,10 @@
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
+        <apexClass>AIDocReviewPromptRouter</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>SplitJobService</apexClass>
         <enabled>true</enabled>
     </classAccesses>

@@ -1,7 +1,7 @@
 /**
  * @description Centralized factory for AI Doc test data.
  *              Creates genesis__Applications__c, clcommon__Document_Category__c,
- *              and attaches ContentDocuments via ContentDocumentLink.
+ *              and attaches ContentDocuments via product category associations.
  */
 @isTest
 public class AIDocTestFactory {
@@ -56,6 +56,14 @@ public class AIDocTestFactory {
             Visibility = 'AllUsers'
         );
         insert l;
+
+        insert new clcommon__Category_Attachment_Association__c(
+            clcommon__Document_Category__c = linkedEntityId,
+            clcommon__Attachment_Id__c = l.Id,
+            clcommon__Content_Document_Id__c = fresh.ContentDocumentId,
+            clcommon__Content_Version_Id__c = cv.Id,
+            clcommon__Status__c = 'Submitted'
+        );
         return l;
     }
 }

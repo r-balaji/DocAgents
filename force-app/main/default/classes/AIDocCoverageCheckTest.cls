@@ -66,6 +66,55 @@ private class AIDocCoverageCheckTest {
     }
 
     @isTest
+    static void shouldIgnoreStaleAssociation_WhenContentDocumentNoLongerExists() {
+        genesis__Applications__c app = AIDocTestFactory.createApplication(true);
+        List<clcommon__Document_Category__c> leaves =
+            AIDocTestFactory.createCategories(app.Id, 1, true);
+        insert new clcommon__Category_Attachment_Association__c(
+            clcommon__Document_Category__c = leaves[0].Id,
+            clcommon__Attachment_Id__c = 'stale-link',
+            clcommon__Content_Document_Id__c = staleContentDocumentId()
+        );
+
+        AIDocCoverageCheck.Request req = new AIDocCoverageCheck.Request();
+        req.applicationId = app.Id;
+
+        Test.startTest();
+        List<AIDocCoverageCheck.Response> out = AIDocCoverageCheck.execute(
+            new List<AIDocCoverageCheck.Request>{ req });
+        Test.stopTest();
+
+        Assert.areEqual(true, out[0].isSuccess, 'stale association should not fault coverage');
+        Assert.areEqual(1, out[0].totalCount, 'leaf category is still counted');
+        Assert.areEqual(0, out[0].filledCount, 'missing ContentDocument should not count as on-file');
+        Assert.areEqual(1, out[0].missingCount, 'category should be treated as missing');
+        Assert.areEqual(0, out[0].encodedRows.size(), 'dead ContentDocument id should not be sent to LLM');
+    }
+
+    @isTest
+    static void shouldTreatRejectedAssociationAsMissing_WhenProductKeepsInactiveFileRow() {
+        genesis__Applications__c app = AIDocTestFactory.createApplication(true);
+        List<clcommon__Document_Category__c> leaves =
+            AIDocTestFactory.createCategories(app.Id, 1, true);
+        ContentDocumentLink link = AIDocTestFactory.attachFile(leaves[0].Id, 'inactive_file');
+        updateAssociationStatus(leaves[0].Id, link.ContentDocumentId, 'Rejected');
+
+        AIDocCoverageCheck.Request req = new AIDocCoverageCheck.Request();
+        req.applicationId = app.Id;
+
+        Test.startTest();
+        List<AIDocCoverageCheck.Response> out = AIDocCoverageCheck.execute(
+            new List<AIDocCoverageCheck.Request>{ req });
+        Test.stopTest();
+
+        Assert.areEqual(true, out[0].isSuccess, 'inactive association should not fault coverage');
+        Assert.areEqual(1, out[0].totalCount, 'leaf category is still counted');
+        Assert.areEqual(0, out[0].filledCount, 'rejected association should not count as on-file');
+        Assert.areEqual(1, out[0].missingCount, 'category should be treated as missing');
+        Assert.areEqual(0, out[0].encodedRows.size(), 'inactive file should not be sent to LLM');
+    }
+
+    @isTest
     static void shouldIgnoreParentCategories_WhenCountingLeaves() {
         // The factory inserts 1 parent group + N leaves.
         // execute() must count only leaves (parent has null parent_id).
@@ -239,13 +288,12 @@ private class AIDocCoverageCheckTest {
         };
         Set<String> actualDocIds = new Set<String>();
         for (String row : out[0].encodedRows) {
-            Assert.isTrue(row.contains('|'), 'row should contain pipe delimiter');
-            List<String> parts = row.split('\\|', -1);
-            Assert.areEqual(5, parts.size(), 'row should have 5 parts');
-            actualDocIds.add(parts[0]);
-            Assert.isNotNull(parts[4], 'category id should be present');
+            Map<String, Object> parsedRow = (Map<String, Object>) JSON.deserializeUntyped(row);
+            actualDocIds.add((String) parsedRow.get('fileContentDocumentId'));
+            Assert.isNotNull(parsedRow.get('documentCategoryId'), 'category id should be present');
+            Assert.isNotNull(parsedRow.get('categoryName'), 'category name should be present');
         }
-        Assert.areEqual(expectedDocIds, actualDocIds, 'doc ids pipe-encoded in rows');
+        Assert.areEqual(expectedDocIds, actualDocIds, 'doc ids JSON-encoded in rows');
     }
 
     @isTest
@@ -280,6 +328,10 @@ private class AIDocCoverageCheckTest {
             (Map<String, Object>) JSON.deserializeUntyped(out[0].reviewedSanityJson);
         Assert.areEqual(1, ((List<Object>) classification.get('items')).size(), 'stored classification should be returned');
         Assert.areEqual(1, ((List<Object>) sanity.get('items')).size(), 'stored sanity verdict should be returned');
+        Assert.areEqual(leaves[0].clcommon__Category_Name__c, firstDocumentName(out[0].reviewedClassificationJson),
+            'cached classification should use the category name');
+        Assert.areEqual(leaves[0].clcommon__Category_Name__c, firstDocumentName(out[0].reviewedSanityJson),
+            'cached sanity should use the category name');
     }
 
     @isTest
@@ -341,5 +393,30 @@ private class AIDocCoverageCheckTest {
         Test.stopTest();
 
         Assert.areEqual(0, out.size(), 'Empty input -> empty output');
+    }
+
+    private static String staleContentDocumentId() {
+        return ContentDocument.SObjectType
+            .getDescribe(SObjectDescribeOptions.DEFERRED)
+            .getKeyPrefix() + String.valueOf(UserInfo.getOrganizationId()).right(12);
+    }
+
+    private static void updateAssociationStatus(Id categoryId, Id contentDocumentId, String status) {
+        clcommon__Category_Attachment_Association__c association = [
+            SELECT Id, clcommon__Status__c
+            FROM clcommon__Category_Attachment_Association__c
+            WHERE clcommon__Document_Category__c = :categoryId
+            AND clcommon__Content_Document_Id__c = :contentDocumentId
+            LIMIT 1
+        ];
+        association.clcommon__Status__c = status;
+        update association;
+    }
+
+    private static String firstDocumentName(String rawJson) {
+        Map<String, Object> payload = (Map<String, Object>) JSON.deserializeUntyped(rawJson);
+        List<Object> items = (List<Object>) payload.get('items');
+        Map<String, Object> first = (Map<String, Object>) items[0];
+        return (String) first.get('documentName');
     }
 }

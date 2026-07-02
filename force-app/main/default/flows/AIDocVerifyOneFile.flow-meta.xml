@@ -1,15 +1,42 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Flow xmlns="http://soap.sforce.com/2006/04/metadata">
     <actionCalls>
-        <name>Run_Sanity</name>
-        <label>Run Sanity</label>
+        <name>Route_Review_Prompt</name>
+        <label>Route Review Prompt</label>
         <locationX>176</locationX>
         <locationY>242</locationY>
-        <actionName>AIDocCombinedReview</actionName>
+        <actionName>AIDocReviewPromptRouter</actionName>
+        <actionType>apex</actionType>
+        <connector>
+            <targetReference>Choose_Review_Prompt</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Set_Review_Failed_Outputs</targetReference>
+        </faultConnector>
+        <flowTransactionModel>Automatic</flowTransactionModel>
+        <inputParameters>
+            <name>categoryName</name>
+            <value>
+                <elementReference>categoryName</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocReviewPromptRouter</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Run_Bank_Statement_Review</name>
+        <label>Run Bank Statement Review</label>
+        <locationX>0</locationX>
+        <locationY>566</locationY>
+        <actionName>AIDocReviewBankStatement</actionName>
         <actionType>generatePromptResponse</actionType>
         <connector>
-            <targetReference>Set_Outputs</targetReference>
+            <targetReference>Set_Bank_Statement_Outputs</targetReference>
         </connector>
+        <faultConnector>
+            <targetReference>Set_Review_Failed_Outputs</targetReference>
+        </faultConnector>
         <flowTransactionModel>CurrentTransaction</flowTransactionModel>
         <inputParameters>
             <name>Input:File</name>
@@ -35,33 +62,602 @@
                 <elementReference>partyType</elementReference>
             </value>
         </inputParameters>
-        <nameSegment>AIDocCombinedReview</nameSegment>
+        <nameSegment>AIDocReviewBankStatement</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Run_Business_Document_Review</name>
+        <label>Run Business Document Review</label>
+        <locationX>1056</locationX>
+        <locationY>566</locationY>
+        <actionName>AIDocReviewBusinessDocument</actionName>
+        <actionType>generatePromptResponse</actionType>
+        <connector>
+            <targetReference>Set_Business_Document_Outputs</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Set_Review_Failed_Outputs</targetReference>
+        </faultConnector>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>Input:File</name>
+            <value>
+                <elementReference>Get_File</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:categoryName</name>
+            <value>
+                <elementReference>categoryName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:expectedPartyName</name>
+            <value>
+                <elementReference>expectedPartyName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:partyType</name>
+            <value>
+                <elementReference>partyType</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocReviewBusinessDocument</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Run_Entity_Formation_Review</name>
+        <label>Run Entity Formation Review</label>
+        <locationX>704</locationX>
+        <locationY>566</locationY>
+        <actionName>AIDocReviewEntityFormation</actionName>
+        <actionType>generatePromptResponse</actionType>
+        <connector>
+            <targetReference>Set_Entity_Formation_Outputs</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Set_Review_Failed_Outputs</targetReference>
+        </faultConnector>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>Input:File</name>
+            <value>
+                <elementReference>Get_File</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:categoryName</name>
+            <value>
+                <elementReference>categoryName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:expectedPartyName</name>
+            <value>
+                <elementReference>expectedPartyName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:partyType</name>
+            <value>
+                <elementReference>partyType</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocReviewEntityFormation</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Run_Financial_Statement_Review</name>
+        <label>Run Financial Statement Review</label>
+        <locationX>880</locationX>
+        <locationY>566</locationY>
+        <actionName>AIDocReviewFinancialStatement</actionName>
+        <actionType>generatePromptResponse</actionType>
+        <connector>
+            <targetReference>Set_Financial_Statement_Outputs</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Set_Review_Failed_Outputs</targetReference>
+        </faultConnector>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>Input:File</name>
+            <value>
+                <elementReference>Get_File</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:categoryName</name>
+            <value>
+                <elementReference>categoryName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:expectedPartyName</name>
+            <value>
+                <elementReference>expectedPartyName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:partyType</name>
+            <value>
+                <elementReference>partyType</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocReviewFinancialStatement</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Run_Generic_Review</name>
+        <label>Run Generic Review</label>
+        <locationX>1232</locationX>
+        <locationY>566</locationY>
+        <actionName>AIDocReviewGeneric</actionName>
+        <actionType>generatePromptResponse</actionType>
+        <connector>
+            <targetReference>Set_Generic_Outputs</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Set_Review_Failed_Outputs</targetReference>
+        </faultConnector>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>Input:File</name>
+            <value>
+                <elementReference>Get_File</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:categoryName</name>
+            <value>
+                <elementReference>categoryName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:expectedPartyName</name>
+            <value>
+                <elementReference>expectedPartyName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:partyType</name>
+            <value>
+                <elementReference>partyType</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocReviewGeneric</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Run_Identity_Review</name>
+        <label>Run Identity Review</label>
+        <locationX>528</locationX>
+        <locationY>566</locationY>
+        <actionName>AIDocReviewIdentity</actionName>
+        <actionType>generatePromptResponse</actionType>
+        <connector>
+            <targetReference>Set_Identity_Outputs</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Set_Review_Failed_Outputs</targetReference>
+        </faultConnector>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>Input:File</name>
+            <value>
+                <elementReference>Get_File</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:categoryName</name>
+            <value>
+                <elementReference>categoryName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:expectedPartyName</name>
+            <value>
+                <elementReference>expectedPartyName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:partyType</name>
+            <value>
+                <elementReference>partyType</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocReviewIdentity</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Run_Tax_Return_Review</name>
+        <label>Run Tax Return Review</label>
+        <locationX>176</locationX>
+        <locationY>566</locationY>
+        <actionName>AIDocReviewTaxReturn</actionName>
+        <actionType>generatePromptResponse</actionType>
+        <connector>
+            <targetReference>Set_Tax_Return_Outputs</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Set_Review_Failed_Outputs</targetReference>
+        </faultConnector>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>Input:File</name>
+            <value>
+                <elementReference>Get_File</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:categoryName</name>
+            <value>
+                <elementReference>categoryName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:expectedPartyName</name>
+            <value>
+                <elementReference>expectedPartyName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:partyType</name>
+            <value>
+                <elementReference>partyType</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocReviewTaxReturn</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Run_Wage_Income_Review</name>
+        <label>Run Wage Income Review</label>
+        <locationX>352</locationX>
+        <locationY>566</locationY>
+        <actionName>AIDocReviewWageIncome</actionName>
+        <actionType>generatePromptResponse</actionType>
+        <connector>
+            <targetReference>Set_Wage_Income_Outputs</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Set_Review_Failed_Outputs</targetReference>
+        </faultConnector>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>Input:File</name>
+            <value>
+                <elementReference>Get_File</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:categoryName</name>
+            <value>
+                <elementReference>categoryName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:expectedPartyName</name>
+            <value>
+                <elementReference>expectedPartyName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>Input:partyType</name>
+            <value>
+                <elementReference>partyType</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AIDocReviewWageIncome</nameSegment>
         <offset>0</offset>
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </actionCalls>
     <apiVersion>62.0</apiVersion>
     <areMetricsLoggedToDataCloud>false</areMetricsLoggedToDataCloud>
     <assignments>
-        <name>Set_Outputs</name>
-        <label>Set Outputs</label>
-        <locationX>176</locationX>
-        <locationY>350</locationY>
+        <name>Set_Bank_Statement_Outputs</name>
+        <label>Set Bank Statement Outputs</label>
+        <locationX>0</locationX>
+        <locationY>674</locationY>
         <assignmentItems>
             <assignToReference>verdictLine</assignToReference>
             <operator>Assign</operator>
             <value>
-                <elementReference>Run_Sanity.promptResponse</elementReference>
+                <elementReference>Run_Bank_Statement_Review.promptResponse</elementReference>
             </value>
         </assignmentItems>
         <assignmentItems>
             <assignToReference>sanityLine</assignToReference>
             <operator>Assign</operator>
             <value>
-                <elementReference>Run_Sanity.promptResponse</elementReference>
+                <elementReference>Run_Bank_Statement_Review.promptResponse</elementReference>
             </value>
         </assignmentItems>
     </assignments>
-    <description>Subflow: runs the combined AI document sanity prompt for a single file and returns the result payload.</description>
+    <assignments>
+        <name>Set_Business_Document_Outputs</name>
+        <label>Set Business Document Outputs</label>
+        <locationX>1056</locationX>
+        <locationY>674</locationY>
+        <assignmentItems>
+            <assignToReference>verdictLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Business_Document_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>sanityLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Business_Document_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <assignments>
+        <name>Set_Entity_Formation_Outputs</name>
+        <label>Set Entity Formation Outputs</label>
+        <locationX>704</locationX>
+        <locationY>674</locationY>
+        <assignmentItems>
+            <assignToReference>verdictLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Entity_Formation_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>sanityLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Entity_Formation_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <assignments>
+        <name>Set_Financial_Statement_Outputs</name>
+        <label>Set Financial Statement Outputs</label>
+        <locationX>880</locationX>
+        <locationY>674</locationY>
+        <assignmentItems>
+            <assignToReference>verdictLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Financial_Statement_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>sanityLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Financial_Statement_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <assignments>
+        <name>Set_Generic_Outputs</name>
+        <label>Set Generic Outputs</label>
+        <locationX>1232</locationX>
+        <locationY>674</locationY>
+        <assignmentItems>
+            <assignToReference>verdictLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Generic_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>sanityLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Generic_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <assignments>
+        <name>Set_Identity_Outputs</name>
+        <label>Set Identity Outputs</label>
+        <locationX>528</locationX>
+        <locationY>674</locationY>
+        <assignmentItems>
+            <assignToReference>verdictLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Identity_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>sanityLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Identity_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <assignments>
+        <name>Set_Review_Failed_Outputs</name>
+        <label>Set Review Failed Outputs</label>
+        <locationX>1408</locationX>
+        <locationY>674</locationY>
+        <assignmentItems>
+            <assignToReference>verdictLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <stringValue>{"items":[{"documentName":"Review Failed","severity":"error","status":"UNREADABLE","summary":"AI review could not complete for this file.","detail":"The review prompt or file lookup failed before producing a response. Please retry the review or replace the document."}]}</stringValue>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>sanityLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <stringValue>{"items":[{"documentName":"Review Failed","severity":"error","status":"UNREADABLE","summary":"AI review could not complete for this file.","detail":"The review prompt or file lookup failed before producing a response. Please retry the review or replace the document."}]}</stringValue>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <assignments>
+        <name>Set_Tax_Return_Outputs</name>
+        <label>Set Tax Return Outputs</label>
+        <locationX>176</locationX>
+        <locationY>674</locationY>
+        <assignmentItems>
+            <assignToReference>verdictLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Tax_Return_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>sanityLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Tax_Return_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <assignments>
+        <name>Set_Wage_Income_Outputs</name>
+        <label>Set Wage Income Outputs</label>
+        <locationX>352</locationX>
+        <locationY>674</locationY>
+        <assignmentItems>
+            <assignToReference>verdictLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Wage_Income_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>sanityLine</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Run_Wage_Income_Review.promptResponse</elementReference>
+            </value>
+        </assignmentItems>
+    </assignments>
+    <decisions>
+        <name>Choose_Review_Prompt</name>
+        <label>Choose Review Prompt</label>
+        <locationX>176</locationX>
+        <locationY>350</locationY>
+        <defaultConnector>
+            <targetReference>Run_Generic_Review</targetReference>
+        </defaultConnector>
+        <defaultConnectorLabel>Generic</defaultConnectorLabel>
+        <rules>
+            <name>Route_Bank_Statement</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Route_Review_Prompt.route</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>BANK_STATEMENT</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Run_Bank_Statement_Review</targetReference>
+            </connector>
+            <label>Bank Statement</label>
+        </rules>
+        <rules>
+            <name>Route_Tax_Return</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Route_Review_Prompt.route</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>TAX_RETURN</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Run_Tax_Return_Review</targetReference>
+            </connector>
+            <label>Tax Return</label>
+        </rules>
+        <rules>
+            <name>Route_Wage_Income</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Route_Review_Prompt.route</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>WAGE_INCOME</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Run_Wage_Income_Review</targetReference>
+            </connector>
+            <label>Wage Income</label>
+        </rules>
+        <rules>
+            <name>Route_Identity</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Route_Review_Prompt.route</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>IDENTITY</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Run_Identity_Review</targetReference>
+            </connector>
+            <label>Identity</label>
+        </rules>
+        <rules>
+            <name>Route_Entity_Formation</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Route_Review_Prompt.route</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>ENTITY_FORMATION</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Run_Entity_Formation_Review</targetReference>
+            </connector>
+            <label>Entity Formation</label>
+        </rules>
+        <rules>
+            <name>Route_Financial_Statement</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Route_Review_Prompt.route</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>FINANCIAL_STATEMENT</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Run_Financial_Statement_Review</targetReference>
+            </connector>
+            <label>Financial Statement</label>
+        </rules>
+        <rules>
+            <name>Route_Business_Document</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Route_Review_Prompt.route</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>BUSINESS_DOCUMENT</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Run_Business_Document_Review</targetReference>
+            </connector>
+            <label>Business Document</label>
+        </rules>
+    </decisions>
+    <description>Subflow: routes one file to the smallest applicable AI document review prompt and returns the review JSON payload.</description>
     <environments>Default</environments>
     <interviewLabel>AI Doc Verify One File {!$Flow.CurrentDateTime}</interviewLabel>
     <label>AI Doc Verify One File</label>
@@ -85,8 +681,11 @@
         <locationY>134</locationY>
         <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
         <connector>
-            <targetReference>Run_Sanity</targetReference>
+            <targetReference>Route_Review_Prompt</targetReference>
         </connector>
+        <faultConnector>
+            <targetReference>Set_Review_Failed_Outputs</targetReference>
+        </faultConnector>
         <filterLogic>and</filterLogic>
         <filters>
             <field>Id</field>
@@ -109,13 +708,6 @@
     </start>
     <status>Active</status>
     <variables>
-        <name>fileContentDocumentId</name>
-        <dataType>String</dataType>
-        <isCollection>false</isCollection>
-        <isInput>true</isInput>
-        <isOutput>false</isOutput>
-    </variables>
-    <variables>
         <name>categoryName</name>
         <dataType>String</dataType>
         <isCollection>false</isCollection>
@@ -130,6 +722,13 @@
         <isOutput>false</isOutput>
     </variables>
     <variables>
+        <name>fileContentDocumentId</name>
+        <dataType>String</dataType>
+        <isCollection>false</isCollection>
+        <isInput>true</isInput>
+        <isOutput>false</isOutput>
+    </variables>
+    <variables>
         <name>partyType</name>
         <dataType>String</dataType>
         <isCollection>false</isCollection>
@@ -137,14 +736,14 @@
         <isOutput>false</isOutput>
     </variables>
     <variables>
-        <name>verdictLine</name>
+        <name>sanityLine</name>
         <dataType>String</dataType>
         <isCollection>false</isCollection>
         <isInput>false</isInput>
         <isOutput>true</isOutput>
     </variables>
     <variables>
-        <name>sanityLine</name>
+        <name>verdictLine</name>
         <dataType>String</dataType>
         <isCollection>false</isCollection>
         <isInput>false</isInput>

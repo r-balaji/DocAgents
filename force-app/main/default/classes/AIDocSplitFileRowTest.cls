@@ -5,7 +5,32 @@
 private class AIDocSplitFileRowTest {
 
     @IsTest
-    static void shouldSplitDocIdAndCategoryName_WhenWellFormed() {
+    static void shouldDecodeJsonRow_WhenWellFormed() {
+        String contentDocumentId = 'content-document-id';
+        String documentCategoryId = 'document-category-id';
+        AIDocSplitFileRow.Request req = new AIDocSplitFileRow.Request();
+        req.encodedRow = JSON.serialize(new Map<String, String>{
+            'fileContentDocumentId' => contentDocumentId,
+            'categoryName' => 'Latest Personal Tax Forms | 2025',
+            'partyName' => 'Vance Electric',
+            'partyType' => 'BORROWER',
+            'documentCategoryId' => documentCategoryId
+        });
+
+        Test.startTest();
+        List<AIDocSplitFileRow.Response> out =
+            AIDocSplitFileRow.execute(new List<AIDocSplitFileRow.Request>{ req });
+        Test.stopTest();
+
+        Assert.areEqual(contentDocumentId, out[0].fileContentDocumentId, 'docId parsed');
+        Assert.areEqual('Latest Personal Tax Forms | 2025', out[0].categoryName, 'categoryName parsed');
+        Assert.areEqual('Vance Electric', out[0].partyName, 'partyName parsed');
+        Assert.areEqual('BORROWER', out[0].partyType, 'partyType parsed');
+        Assert.areEqual(documentCategoryId, out[0].documentCategoryId, 'category id parsed');
+    }
+
+    @IsTest
+    static void shouldDecodeLegacyPipeRow_WhenExistingInterviewUsesOldFormat() {
         String contentDocumentId = 'content-document-id';
         String documentCategoryId = 'document-category-id';
         AIDocSplitFileRow.Request req = new AIDocSplitFileRow.Request();
@@ -16,11 +41,11 @@ private class AIDocSplitFileRowTest {
             AIDocSplitFileRow.execute(new List<AIDocSplitFileRow.Request>{ req });
         Test.stopTest();
 
-        Assert.areEqual(contentDocumentId, out[0].fileContentDocumentId, 'docId parsed');
-        Assert.areEqual('Latest Personal Tax Forms', out[0].categoryName, 'categoryName parsed');
-        Assert.areEqual('Vance Electric', out[0].partyName, 'partyName parsed');
-        Assert.areEqual('BORROWER', out[0].partyType, 'partyType parsed');
-        Assert.areEqual(documentCategoryId, out[0].documentCategoryId, 'category id parsed');
+        Assert.areEqual(contentDocumentId, out[0].fileContentDocumentId, 'legacy docId parsed');
+        Assert.areEqual('Latest Personal Tax Forms', out[0].categoryName, 'legacy categoryName parsed');
+        Assert.areEqual('Vance Electric', out[0].partyName, 'legacy partyName parsed');
+        Assert.areEqual('BORROWER', out[0].partyType, 'legacy partyType parsed');
+        Assert.areEqual(documentCategoryId, out[0].documentCategoryId, 'legacy category id parsed');
     }
 
     @IsTest

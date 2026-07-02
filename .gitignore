@@ -26,6 +26,7 @@ node_modules/
 
 # ApexPMD cache
 .pmdCache
+code-analyzer-results-*.json
 
 # Eslint cache
 .eslintcache
@@ -54,4 +55,5 @@ $RECYCLE.BIN/
 .agents/
 
 # Local/generated working notes
+*.md
 docs/REMOVE_WORKAROUNDS.md

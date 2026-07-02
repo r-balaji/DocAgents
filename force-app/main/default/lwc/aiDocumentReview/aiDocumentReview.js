@@ -32,7 +32,7 @@ export default class AiDocumentReview extends LightningElement {
                 documentName: item.documentName || item.category || 'Document',
                 category: item.category || '',
                 status,
-                pillClass: this.classifyPill(status)
+                pillClass: this.classifyPill(status, item.severity)
             };
         });
     }
@@ -66,28 +66,24 @@ export default class AiDocumentReview extends LightningElement {
     }
 
     getFindingSeverity(item) {
-        const status = (item.status || '').toLowerCase();
+        const status = (item.status || '').trim().toUpperCase();
         const severity = (item.severity || '').toLowerCase();
 
-        if (
-            severity === 'success' ||
-            status.includes('acceptable') ||
-            status.includes('ok') ||
-            status.includes('pass')
-        ) {
+        if (this.isErrorStatus(status)) {
+            return 'error';
+        }
+        if (this.isWarningStatus(status)) {
+            return 'warning';
+        }
+        if (this.isSuccessStatus(status)) {
             return 'success';
         }
 
-        if (
-            severity === 'warning' ||
-            status.includes('unreadable') ||
-            status.includes('review') ||
-            status.includes('note')
-        ) {
-            return 'warning';
-        }
+        if (severity === 'error') return 'error';
+        if (severity === 'warning') return 'warning';
+        if (severity === 'success') return 'success';
 
-        return 'error';
+        return 'warning';
     }
 
     createSummary(text) {
@@ -117,14 +113,43 @@ export default class AiDocumentReview extends LightningElement {
 
     safeParse(value, fallback) {
         try { return value ? JSON.parse(value) : fallback; }
-        catch (e) { return fallback; }
+        catch { return fallback; }
     }
 
-    classifyPill(status) {
-        const s = status.toUpperCase();
-        if (s === 'OK' || s === 'PASS' || s === 'CORRECT') return 'pill pill-success';
-        if (s.includes('WRONG') || s.includes('MISMATCH')) return 'pill pill-error';
+    classifyPill(status, severity) {
+        const s = (status || '').toUpperCase();
+        if (this.isSuccessStatus(s)) {
+            return 'pill pill-success';
+        }
+        if (this.isErrorStatus(s)) {
+            return 'pill pill-error';
+        }
+        if (this.isWarningStatus(s)) {
+            return 'pill pill-warning';
+        }
+
+        const sev = (severity || '').toLowerCase();
+        if (sev === 'success') return 'pill pill-success';
+        if (sev === 'error') return 'pill pill-error';
+        if (sev === 'warning') return 'pill pill-warning';
+
         return 'pill pill-warning';
+    }
+
+    isSuccessStatus(status) {
+        return ['OK', 'PASS', 'CORRECT', 'ACCEPTABLE'].includes(status);
+    }
+
+    isWarningStatus(status) {
+        return ['INCOMPLETE', 'STALE', 'EXPIRING_SOON'].includes(status);
+    }
+
+    isErrorStatus(status) {
+        return (
+            status.includes('WRONG') ||
+            status.includes('MISMATCH') ||
+            ['UNREADABLE', 'UNACCEPTABLE', 'EXPIRED'].includes(status)
+        );
     }
 
     handleFinish() {
