@@ -214,10 +214,10 @@ public with sharing class AIDocReviewResultStore {
         @InvocableVariable(label='File ContentDocument Id' description='ContentDocument Id currently attached to the category' required=true)
         public Id fileContentDocumentId;
 
-        @InvocableVariable(label='Classification JSON' description='Fresh AIDocClassifyFile prompt output to store' required=true)
+        @InvocableVariable(label='Classification JSON' description='Fresh review classification JSON output to store' required=true)
         public String classificationJson;
 
-        @InvocableVariable(label='Sanity JSON' description='Fresh AIDocSanityCheck prompt output to store' required=true)
+        @InvocableVariable(label='Sanity JSON' description='Fresh review sanity JSON output to store' required=true)
         public String sanityJson;
     }
 
