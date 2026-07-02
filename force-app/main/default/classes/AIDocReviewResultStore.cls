@@ -2,9 +2,6 @@
  * Stores AI Document Review verdicts by ContentDocumentId on the document category.
  */
 public with sharing class AIDocReviewResultStore {
-    private static final String CLASSIFICATION_JSON_KEY = 'classificationJson';
-    private static final String SANITY_JSON_KEY = 'sanityJson';
-
     /**
      * Merges a newly generated per-file review result into the category feedback JSON.
      * @param requests Flow requests containing category, ContentDocumentId, and prompt output.
@@ -23,7 +20,8 @@ public with sharing class AIDocReviewResultStore {
         List<Response> responses = initializeResponses(requests.size());
         Set<Id> categoryIds = collectCategoryIds(requests);
         Map<Id, clcommon__Document_Category__c> categoriesById = loadCategories(categoryIds);
-        Map<Id, Set<Id>> currentDocIdsByCategoryId = loadCurrentContentDocumentIdsUserMode(categoryIds);
+        Map<Id, Set<Id>> currentDocIdsByCategoryId =
+            AIDocReviewFileSelector.selectCurrentContentDocumentIdsByCategoryUserMode(categoryIds);
         Map<Id, Map<String, Object>> feedbackByCategoryId = new Map<Id, Map<String, Object>>();
         Map<Id, clcommon__Document_Category__c> updatesByCategoryId = new Map<Id, clcommon__Document_Category__c>();
         Map<Id, List<Integer>> responseIndexesByCategoryId = new Map<Id, List<Integer>>();
@@ -41,12 +39,18 @@ public with sharing class AIDocReviewResultStore {
             }
 
             Map<String, Object> feedbackByDocId = getFeedbackForCategory(category, feedbackByCategoryId);
+            String documentName = category.clcommon__Category_Name__c;
+            String normalizedClassificationJson = normalizeDocumentName(req.classificationJson, documentName);
+            String normalizedSanityJson = normalizeDocumentName(req.sanityJson, documentName);
             feedbackByDocId.put(String.valueOf(req.fileContentDocumentId), new Map<String, Object>{
-                CLASSIFICATION_JSON_KEY => req.classificationJson,
-                SANITY_JSON_KEY => req.sanityJson
+                AIDocReviewFeedbackUtil.CLASSIFICATION_JSON_KEY => normalizedClassificationJson,
+                AIDocReviewFeedbackUtil.SANITY_JSON_KEY => normalizedSanityJson
             });
 
-            Boolean allFilesReviewed = hasReviewForEveryFile(feedbackByDocId, currentDocIdsByCategoryId.get(req.documentCategoryId));
+            Boolean allFilesReviewed = AIDocReviewFeedbackUtil.hasReviewForEveryFile(
+                feedbackByDocId,
+                currentDocIdsByCategoryId.get(req.documentCategoryId)
+            );
             updatesByCategoryId.put(req.documentCategoryId, new clcommon__Document_Category__c(
                 Id = req.documentCategoryId,
                 AI_Reviewed__c = allFilesReviewed,
@@ -57,6 +61,8 @@ public with sharing class AIDocReviewResultStore {
             }
             responseIndexesByCategoryId.get(req.documentCategoryId).add(i);
             res.isReviewed = allFilesReviewed;
+            res.classificationJson = normalizedClassificationJson;
+            res.sanityJson = normalizedSanityJson;
             res.reviewFeedbackJson = JSON.serialize(feedbackByDocId);
         }
 
@@ -65,43 +71,48 @@ public with sharing class AIDocReviewResultStore {
     }
 
     /**
+     * Rewrites each item.documentName in a prompt JSON payload to the supplied category display name.
+     * @param rawJson Prompt JSON payload to normalize.
+     * @param documentName Category display name for the reviewed document slot.
+     * @return Normalized JSON, or the original payload if it cannot be parsed.
+     */
+    public static String normalizeDocumentName(String rawJson, String documentName) {
+        return AIDocReviewJsonUtil.normalizeDocumentName(rawJson, documentName);
+    }
+
+    /**
      * Recalculates the category-level reviewed flag after file links change.
      * @param links ContentDocumentLink records from trigger context.
      */
     public static void recalculateForContentDocumentLinks(List<ContentDocumentLink> links) {
-        recalculateReviewFlags(extractDocumentCategoryIds(links));
+        AIDocReviewStateRecalculator.recalculateReviewFlags(
+            AIDocReviewStateRecalculator.extractDocumentCategoryIds(links)
+        );
     }
 
-    @SuppressWarnings('PMD.ApexCRUDViolation')
-    @TestVisible
-    private static void recalculateReviewFlags(Set<Id> documentCategoryIds) {
-        if (documentCategoryIds == null || documentCategoryIds.isEmpty()) {
-            return;
-        }
+    /**
+     * Recalculates review state after product file-association rows change.
+     * @param newAssociations New trigger-context association rows, when available.
+     * @param oldAssociations Old trigger-context association rows, when available.
+     */
+    public static void recalculateForCategoryAttachmentAssociations(
+        List<clcommon__Category_Attachment_Association__c> newAssociations,
+        List<clcommon__Category_Attachment_Association__c> oldAssociations
+    ) {
+        Set<Id> documentCategoryIds =
+            AIDocReviewStateRecalculator.extractDocumentCategoryIdsFromAssociations(newAssociations);
+        documentCategoryIds.addAll(
+            AIDocReviewStateRecalculator.extractDocumentCategoryIdsFromAssociations(oldAssociations)
+        );
+        AIDocReviewStateRecalculator.recalculateReviewFlags(documentCategoryIds);
+    }
 
-        Map<Id, clcommon__Document_Category__c> categoriesById = new Map<Id, clcommon__Document_Category__c>([
-            SELECT Id, AI_Reviewed__c, AI_Review_Feedback_JSON__c
-            FROM clcommon__Document_Category__c
-            WHERE Id IN :documentCategoryIds
-        ]);
-        Map<Id, Set<Id>> currentDocIdsByCategoryId = loadCurrentContentDocumentIdsSystemMode(documentCategoryIds);
-
-        List<clcommon__Document_Category__c> updates = new List<clcommon__Document_Category__c>();
-        for (clcommon__Document_Category__c category : categoriesById.values()) {
-            Boolean allFilesReviewed = hasReviewForEveryFile(
-                parseFeedbackByDocumentId(category.AI_Review_Feedback_JSON__c),
-                currentDocIdsByCategoryId.get(category.Id)
-            );
-            if (category.AI_Reviewed__c != allFilesReviewed) {
-                updates.add(new clcommon__Document_Category__c(
-                    Id = category.Id,
-                    AI_Reviewed__c = allFilesReviewed
-                ));
-            }
-        }
-        if (!updates.isEmpty()) {
-            Database.update(updates, false);
-        }
+    /**
+     * Recalculates review state for the given document categories.
+     * @param documentCategoryIds Category Ids whose active file set should be re-evaluated.
+     */
+    public static void recalculateForDocumentCategoryIds(Set<Id> documentCategoryIds) {
+        AIDocReviewStateRecalculator.recalculateReviewFlags(documentCategoryIds);
     }
 
     private static List<Response> initializeResponses(Integer responseCount) {
@@ -130,52 +141,11 @@ public with sharing class AIDocReviewResultStore {
             return new Map<Id, clcommon__Document_Category__c>();
         }
         return new Map<Id, clcommon__Document_Category__c>([
-            SELECT Id, AI_Review_Feedback_JSON__c
+            SELECT Id, clcommon__Category_Name__c, AI_Review_Feedback_JSON__c
             FROM clcommon__Document_Category__c
             WHERE Id IN :categoryIds
             WITH USER_MODE
         ]);
-    }
-
-    private static Map<Id, Set<Id>> loadCurrentContentDocumentIdsUserMode(Set<Id> categoryIds) {
-        Map<Id, Set<Id>> docIdsByCategoryId = new Map<Id, Set<Id>>();
-        if (categoryIds == null || categoryIds.isEmpty()) {
-            return docIdsByCategoryId;
-        }
-
-        for (ContentDocumentLink link : [
-            SELECT LinkedEntityId, ContentDocumentId
-            FROM ContentDocumentLink
-            WHERE LinkedEntityId IN :categoryIds
-            WITH USER_MODE
-        ]) {
-            addContentDocumentId(docIdsByCategoryId, link);
-        }
-        return docIdsByCategoryId;
-    }
-
-    @SuppressWarnings('PMD.ApexCRUDViolation')
-    private static Map<Id, Set<Id>> loadCurrentContentDocumentIdsSystemMode(Set<Id> categoryIds) {
-        Map<Id, Set<Id>> docIdsByCategoryId = new Map<Id, Set<Id>>();
-        if (categoryIds == null || categoryIds.isEmpty()) {
-            return docIdsByCategoryId;
-        }
-
-        for (ContentDocumentLink link : [
-            SELECT LinkedEntityId, ContentDocumentId
-            FROM ContentDocumentLink
-            WHERE LinkedEntityId IN :categoryIds
-        ]) {
-            addContentDocumentId(docIdsByCategoryId, link);
-        }
-        return docIdsByCategoryId;
-    }
-
-    private static void addContentDocumentId(Map<Id, Set<Id>> docIdsByCategoryId, ContentDocumentLink link) {
-        if (!docIdsByCategoryId.containsKey(link.LinkedEntityId)) {
-            docIdsByCategoryId.put(link.LinkedEntityId, new Set<Id>());
-        }
-        docIdsByCategoryId.get(link.LinkedEntityId).add(link.ContentDocumentId);
     }
 
     private static Boolean validateRequest(Request req, Response res) {
@@ -199,47 +169,12 @@ public with sharing class AIDocReviewResultStore {
         Map<Id, Map<String, Object>> feedbackByCategoryId
     ) {
         if (!feedbackByCategoryId.containsKey(category.Id)) {
-            feedbackByCategoryId.put(category.Id, parseFeedbackByDocumentId(category.AI_Review_Feedback_JSON__c));
+            feedbackByCategoryId.put(
+                category.Id,
+                AIDocReviewFeedbackUtil.parseFeedbackByDocumentId(category.AI_Review_Feedback_JSON__c)
+            );
         }
         return feedbackByCategoryId.get(category.Id);
-    }
-
-    private static Map<String, Object> parseFeedbackByDocumentId(String feedbackJson) {
-        Map<String, Object> feedbackByDocId = new Map<String, Object>();
-        if (String.isBlank(feedbackJson)) {
-            return feedbackByDocId;
-        }
-
-        try {
-            Object parsed = JSON.deserializeUntyped(feedbackJson);
-            if (parsed instanceof Map<String, Object>) {
-                feedbackByDocId.putAll((Map<String, Object>) parsed);
-            }
-        } catch (Exception ignored) {
-            return new Map<String, Object>();
-        }
-        return feedbackByDocId;
-    }
-
-    private static Boolean hasReviewForEveryFile(Map<String, Object> feedbackByDocId, Set<Id> currentDocIds) {
-        if (currentDocIds == null || currentDocIds.isEmpty()) {
-            return false;
-        }
-        for (Id docId : currentDocIds) {
-            if (!hasCompleteReview(feedbackByDocId.get(String.valueOf(docId)))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static Boolean hasCompleteReview(Object reviewValue) {
-        if (!(reviewValue instanceof Map<String, Object>)) {
-            return false;
-        }
-        Map<String, Object> review = (Map<String, Object>) reviewValue;
-        return String.isNotBlank(valueAsString(review.get(CLASSIFICATION_JSON_KEY)))
-            && String.isNotBlank(valueAsString(review.get(SANITY_JSON_KEY)));
     }
 
     private static void saveUpdates(
@@ -264,25 +199,6 @@ public with sharing class AIDocReviewResultStore {
                 res.isReviewed = false;
             }
         }
-    }
-
-    private static Set<Id> extractDocumentCategoryIds(List<ContentDocumentLink> links) {
-        Set<Id> documentCategoryIds = new Set<Id>();
-        String categoryPrefix = clcommon__Document_Category__c.SObjectType
-            .getDescribe(SObjectDescribeOptions.DEFERRED)
-            .getKeyPrefix();
-        for (ContentDocumentLink link : links) {
-            if (link != null
-                && link.LinkedEntityId != null
-                && String.valueOf(link.LinkedEntityId).startsWith(categoryPrefix)) {
-                documentCategoryIds.add(link.LinkedEntityId);
-            }
-        }
-        return documentCategoryIds;
-    }
-
-    private static String valueAsString(Object value) {
-        return value == null ? '' : String.valueOf(value);
     }
 
     private static void markError(Response res, String errorType, String errorMessage) {
@@ -311,6 +227,12 @@ public with sharing class AIDocReviewResultStore {
 
         @InvocableVariable(label='All Files Reviewed' description='True when every current file on the category has a stored verdict')
         public Boolean isReviewed;
+
+        @InvocableVariable(label='Classification JSON' description='Normalized classification JSON for this file')
+        public String classificationJson;
+
+        @InvocableVariable(label='Sanity JSON' description='Normalized sanity JSON for this file')
+        public String sanityJson;
 
         @InvocableVariable(label='Review Feedback JSON' description='Updated ContentDocumentId-to-review JSON map')
         public String reviewFeedbackJson;

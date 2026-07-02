@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <GenAiPromptTemplate xmlns="http://soap.sforce.com/2006/04/metadata">
-    <activeVersionIdentifier>1uYwXIsacTc6GUywXfWs2MQcA3TrCGpuYXSdQoOUhi4=_4</activeVersionIdentifier>
+    <activeVersionIdentifier>1uYwXIsacTc6GUywXfWs2MQcA3TrCGpuYXSdQoOUhi4=_5</activeVersionIdentifier>
     <description>Vision prompt that classifies the page ranges inside a multi-page PDF bundle into typed segments. Used by the AI Document Splitter.</description>
     <developerName>AIDocSplitClassify</developerName>
     <masterLabel>AI Doc Split Classify</masterLabel>

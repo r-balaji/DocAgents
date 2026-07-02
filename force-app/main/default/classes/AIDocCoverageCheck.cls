@@ -3,163 +3,104 @@
  *
  *  1. Coverage stats — counts every borrower-facing document slot, files attached, missing categories.
  *  2. Party roster   — resolves all parties on the Application from clcommon__Party__c.
- *  3. Unreviewed-file rows — one pipe-encoded row per attached file that is missing stored
+ *  3. Unreviewed-file rows — one JSON row per attached file that is missing stored
  *     AI feedback, including the party that owns the file's category tree.
  *
- * Encoding for encodedRows: "<docId>|<categoryName>|<partyName>|<partyType>|<categoryId>"
+ * Encoding for encodedRows: JSON with fileContentDocumentId, categoryName, partyName,
+ * partyType, and documentCategoryId.
  *
  * Why all in one class: the same SOQL on clcommon__Document_Category__c and clcommon__Party__c
  * was being run twice per flow execution. Consolidating cuts two queries per run and removes
  * duplicated processing. No AI involvement — fully deterministic SOQL.
  */
 public with sharing class AIDocCoverageCheck {
-    private static final String CLASSIFICATION_JSON_KEY = 'classificationJson';
-    private static final String SANITY_JSON_KEY = 'sanityJson';
-
     @InvocableMethod(
         label='AI Doc - Coverage Check'
         description='Returns coverage stats, borrower name, stored review JSON, and party-aware rows for files still needing review.'
         category='AI Document Review'
     )
     public static List<Response> execute(List<Request> requests) {
-        List<Response> responses = new List<Response>();
-
-        Set<Id> allApplicationIds = new Set<Id>();
-        for (Request req : requests) {
-            if (req != null && req.applicationId != null) {
-                allApplicationIds.add(req.applicationId);
-            }
-        }
-
+        Set<Id> allApplicationIds = collectApplicationIds(requests);
         if (allApplicationIds.isEmpty()) {
-            for (Request req : requests) {
-                Response r = new Response();
-                r.isSuccess = false;
-                r.errorMessage = 'Application Id is required.';
-                r.errorType = 'MISSING_INPUT';
-                responses.add(r);
-            }
-            return responses;
+            return buildMissingInputResponses(requests);
         }
 
-        // All active categories on the requested applications, keyed by Id for tree-walking.
-        Map<Id, clcommon__Document_Category__c> categoriesById = new Map<Id, clcommon__Document_Category__c>([SELECT Id, Name, clcommon__Category_Name__c, genesis__Application__c, clcommon__Parent_Document_Category__c, clcommon__Account__c,
-                                                                                                                   AI_Reviewed__c, AI_Review_Feedback_JSON__c
-                                                                                                            FROM clcommon__Document_Category__c
-                                                                                                            WHERE genesis__Application__c IN :allApplicationIds
-                                                                                                            AND clcommon__Active__c = true
-                                                                                                            WITH USER_MODE
-                                                                                                            ORDER BY clcommon__Category_Name__c
-                                                                                                            LIMIT 5000]);
-
-        // Index categories by application, and identify which categories are group nodes (have children).
-        Map<Id, List<clcommon__Document_Category__c>> catsByApp = new Map<Id, List<clcommon__Document_Category__c>>();
-        Set<Id> groupCatIds = new Set<Id>();
-        for (clcommon__Document_Category__c category : categoriesById.values()) {
-            if (!catsByApp.containsKey(category.genesis__Application__c)) {
-                catsByApp.put(category.genesis__Application__c, new List<clcommon__Document_Category__c>());
-            }
-            catsByApp.get(category.genesis__Application__c).add(category);
-            if (category.clcommon__Parent_Document_Category__c != null) {
-                groupCatIds.add(category.clcommon__Parent_Document_Category__c);
-            }
-        }
-
-        // Files attached to each category, with full ContentDocumentId list per category for encoded rows.
-        Set<Id> allCatIds = categoriesById.keySet();
-        Map<Id, Integer> fileCountByCatId = new Map<Id, Integer>();
-        Map<Id, List<Id>> docIdsByCatId = new Map<Id, List<Id>>();
-        if (!allCatIds.isEmpty()) {
-            List<ContentDocumentLink> files = [
-                SELECT LinkedEntityId, ContentDocumentId
-                FROM ContentDocumentLink
-                WHERE LinkedEntityId IN :allCatIds
-                WITH USER_MODE
-            ];
-            for (ContentDocumentLink l : files) {
-                Integer n = fileCountByCatId.containsKey(l.LinkedEntityId) ? fileCountByCatId.get(l.LinkedEntityId) : 0;
-                fileCountByCatId.put(l.LinkedEntityId, n + 1);
-                if (!docIdsByCatId.containsKey(l.LinkedEntityId)) {
-                    docIdsByCatId.put(l.LinkedEntityId, new List<Id>());
-                }
-                docIdsByCatId.get(l.LinkedEntityId).add(l.ContentDocumentId);
-            }
-        }
-
-        // Parties on the application — both keyed two ways:
-        //  - by application Id → party type → list of names (for the coverage JSON / borrowerName)
-        //  - by Account Id → PartyContext            (for per-file root-category party lookup)
-        Map<Id, Map<String, List<String>>> partiesByApp = new Map<Id, Map<String, List<String>>>();
-        Map<Id, PartyContext> partyByAccountId = new Map<Id, PartyContext>();
-        List<clcommon__Party__c> parties = [SELECT Id, genesis__Application__c, clcommon__Account__c, clcommon__Party_Types__c, clcommon__isPrimary__c,
-                                                   clcommon__Account__r.Name,
-                                                   clcommon__Contact__r.FirstName, clcommon__Contact__r.LastName
-                                            FROM clcommon__Party__c
-                                            WHERE genesis__Application__c IN :allApplicationIds
-                                            WITH USER_MODE
-                                            ORDER BY clcommon__isPrimary__c DESC NULLS LAST, Name];
-        for (clcommon__Party__c p : parties) {
-            String partyType = String.isBlank(p.clcommon__Party_Types__c) ? 'UNSPECIFIED' : p.clcommon__Party_Types__c;
-            String partyName = resolvePartyName(p);
-            if (String.isBlank(partyName)) {
-                continue;
-            }
-            if (!partiesByApp.containsKey(p.genesis__Application__c)) {
-                partiesByApp.put(p.genesis__Application__c, new Map<String, List<String>>());
-            }
-            Map<String, List<String>> typeMap = partiesByApp.get(p.genesis__Application__c);
-            if (!typeMap.containsKey(partyType)) {
-                typeMap.put(partyType, new List<String>());
-            }
-            typeMap.get(partyType).add(partyName);
-            if (p.clcommon__Account__c != null) {
-                partyByAccountId.put(p.clcommon__Account__c, new PartyContext(partyName, partyType));
-            }
-        }
-
+        CoverageContext context = buildContext(allApplicationIds);
+        List<Response> responses = new List<Response>();
         for (Request req : requests) {
-            responses.add(buildResponse(req, catsByApp, fileCountByCatId, docIdsByCatId, groupCatIds, partiesByApp, partyByAccountId, categoriesById));
+            responses.add(buildResponse(req, context));
         }
         return responses;
     }
 
-    private static String resolvePartyName(clcommon__Party__c p) {
-        if (p.clcommon__Account__r != null && String.isNotBlank(p.clcommon__Account__r.Name)) {
-            return p.clcommon__Account__r.Name;
+    private static Set<Id> collectApplicationIds(List<Request> requests) {
+        Set<Id> applicationIds = new Set<Id>();
+        if (requests == null) {
+            return applicationIds;
         }
-        if (p.clcommon__Contact__r != null) {
-            String first = p.clcommon__Contact__r.FirstName;
-            String last = p.clcommon__Contact__r.LastName;
-            String combined = String.isBlank(first) ? '' : first;
-            if (String.isNotBlank(last)) {
-                combined = String.isBlank(combined) ? last : combined + ' ' + last;
+        for (Request req : requests) {
+            if (req != null && req.applicationId != null) {
+                applicationIds.add(req.applicationId);
             }
-            return combined;
         }
-        return '';
+        return applicationIds;
     }
 
-    /**
-     * Walks the category tree from the given leaf up to the root and returns the party
-     * context for the root. The root category's clcommon__Account__c identifies which
-     * party (e.g. Bill Vance / GUARANTOR vs Vance Electric / BORROWER) the file belongs to.
-     */
-    private static PartyContext resolvePartyForCategory(
-        clcommon__Document_Category__c leaf,
-        Map<Id, clcommon__Document_Category__c> categoriesById,
-        Map<Id, PartyContext> partyByAccountId
-    ) {
-        clcommon__Document_Category__c cursor = leaf;
-        Integer guard = 0;
-        while (cursor != null && cursor.clcommon__Parent_Document_Category__c != null && guard < 20) {
-            cursor = categoriesById.get(cursor.clcommon__Parent_Document_Category__c);
-            guard++;
+    private static List<Response> buildMissingInputResponses(List<Request> requests) {
+        List<Response> responses = new List<Response>();
+        if (requests == null) {
+            return responses;
         }
-        if (cursor == null || cursor.clcommon__Account__c == null) {
-            return new PartyContext('', '');
+        for (Request req : requests) {
+            responses.add(errorResponse('Application Id is required.', 'MISSING_INPUT'));
         }
-        PartyContext ctx = partyByAccountId.get(cursor.clcommon__Account__c);
-        return ctx == null ? new PartyContext('', '') : ctx;
+        return responses;
+    }
+
+    private static Response errorResponse(String message, String errorType) {
+        Response r = new Response();
+        r.isSuccess = false;
+        r.errorMessage = message;
+        r.errorType = errorType;
+        return r;
+    }
+
+    private static CoverageContext buildContext(Set<Id> applicationIds) {
+        CoverageContext context = new CoverageContext();
+        context.categoriesById = loadCategories(applicationIds);
+        indexCategories(context);
+        context.docIdsByCatId =
+            AIDocReviewFileSelector.selectCurrentContentDocumentIdsByCategoryUserMode(context.categoriesById.keySet());
+        AIDocReviewPartyResolver.PartyIndex partyIndex = AIDocReviewPartyResolver.load(applicationIds);
+        context.partiesByApp = partyIndex.partiesByApp;
+        context.partyByAccountId = partyIndex.partyByAccountId;
+        return context;
+    }
+
+    private static Map<Id, clcommon__Document_Category__c> loadCategories(Set<Id> applicationIds) {
+        return new Map<Id, clcommon__Document_Category__c>([
+            SELECT Id, Name, clcommon__Category_Name__c, genesis__Application__c,
+                   clcommon__Parent_Document_Category__c, clcommon__Account__c,
+                   AI_Reviewed__c, AI_Review_Feedback_JSON__c
+            FROM clcommon__Document_Category__c
+            WHERE genesis__Application__c IN :applicationIds
+            AND clcommon__Active__c = true
+            WITH USER_MODE
+            ORDER BY clcommon__Category_Name__c
+            LIMIT 5000
+        ]);
+    }
+
+    private static void indexCategories(CoverageContext context) {
+        for (clcommon__Document_Category__c category : context.categoriesById.values()) {
+            if (!context.catsByApp.containsKey(category.genesis__Application__c)) {
+                context.catsByApp.put(category.genesis__Application__c, new List<clcommon__Document_Category__c>());
+            }
+            context.catsByApp.get(category.genesis__Application__c).add(category);
+            if (category.clcommon__Parent_Document_Category__c != null) {
+                context.groupCatIds.add(category.clcommon__Parent_Document_Category__c);
+            }
+        }
     }
 
     private static String nullToEmpty(String s) {
@@ -168,181 +109,124 @@ public with sharing class AIDocCoverageCheck {
 
     private static Response buildResponse(
         Request req,
-        Map<Id, List<clcommon__Document_Category__c>> catsByApp,
-        Map<Id, Integer> fileCountByCatId,
-        Map<Id, List<Id>> docIdsByCatId,
-        Set<Id> groupCatIds,
-        Map<Id, Map<String, List<String>>> partiesByApp,
-        Map<Id, PartyContext> partyByAccountId,
-        Map<Id, clcommon__Document_Category__c> categoriesById
+        CoverageContext context
     ) {
         Response res = new Response();
 
         if (req == null || req.applicationId == null) {
-            res.isSuccess = false;
-            res.errorMessage = 'Application Id is required.';
-            res.errorType = 'MISSING_INPUT';
-            return res;
+            return errorResponse('Application Id is required.', 'MISSING_INPUT');
         }
 
-        List<clcommon__Document_Category__c> cats = catsByApp.containsKey(req.applicationId) ? catsByApp.get(req.applicationId) : new List<clcommon__Document_Category__c>();
-        Integer totalCount = 0;
-        Integer filledCount = 0;
-        List<String> missingNames = new List<String>();
-        List<String> filledNames = new List<String>();
-        List<Map<String, Object>> rows = new List<Map<String, Object>>();
+        CoverageAccumulator coverage = new CoverageAccumulator();
+        List<clcommon__Document_Category__c> cats = context.catsByApp.containsKey(req.applicationId)
+            ? context.catsByApp.get(req.applicationId)
+            : new List<clcommon__Document_Category__c>();
 
+        ResponseBuildState state = new ResponseBuildState(res, coverage, context);
         for (clcommon__Document_Category__c c : cats) {
-            Boolean isSlot = !groupCatIds.contains(c.Id);
-            if (!isSlot) {
-                continue;
-            }
-            Integer fc = fileCountByCatId.containsKey(c.Id) ? fileCountByCatId.get(c.Id) : 0;
-            totalCount++;
-            if (fc > 0) {
-                filledCount++;
-                filledNames.add(c.clcommon__Category_Name__c);
-            } else {
-                missingNames.add(c.clcommon__Category_Name__c);
-            }
-            rows.add(new Map<String, Object>{
-                'id' => c.Id,
-                'name' => c.clcommon__Category_Name__c,
-                'fileCount' => fc,
-                'onFile' => fc > 0,
-                'aiReviewed' => c.AI_Reviewed__c
-            });
-
-            // Build encodedRows only for attached files that do not already have stored AI feedback.
-            if (fc > 0 && docIdsByCatId.containsKey(c.Id)) {
-                PartyContext party = resolvePartyForCategory(c, categoriesById, partyByAccountId);
-                Map<String, StoredReview> storedReviews = parseStoredReviews(c.AI_Review_Feedback_JSON__c);
-                for (Id docId : docIdsByCatId.get(c.Id)) {
-                    StoredReview storedReview = storedReviews.get(String.valueOf(docId));
-                    if (storedReview != null && storedReview.hasCompleteReview()) {
-                        res.reviewedClassificationJsonStrings.add(storedReview.classificationJson);
-                        res.reviewedSanityJsonStrings.add(storedReview.sanityJson);
-                    } else {
-                        res.encodedRows.add(String.valueOf(docId)
-                            + '|' + nullToEmpty(c.clcommon__Category_Name__c)
-                            + '|' + nullToEmpty(party.partyName)
-                            + '|' + nullToEmpty(party.partyType)
-                            + '|' + String.valueOf(c.Id));
-                    }
-                }
-            }
+            addCategoryToResponse(c, state);
         }
 
-        Integer missingCount = totalCount - filledCount;
-
-        Map<String, List<String>> partyTypeMap = partiesByApp.containsKey(req.applicationId) ? partiesByApp.get(req.applicationId) : new Map<String, List<String>>();
-        List<String> borrowerNames = partyTypeMap.containsKey('BORROWER') ? partyTypeMap.get('BORROWER') : new List<String>();
+        Integer missingCount = coverage.totalCount - coverage.filledCount;
+        Map<String, List<String>> partyTypeMap = context.partiesByApp.containsKey(req.applicationId)
+            ? context.partiesByApp.get(req.applicationId)
+            : new Map<String, List<String>>();
+        List<String> borrowerNames = partyTypeMap.containsKey('BORROWER')
+            ? partyTypeMap.get('BORROWER')
+            : new List<String>();
         // Single-string convenience field used by the email-writer and other String-based consumers.
         String borrowerNameJoined = String.join(borrowerNames, ', ');
 
-        Map<String, Object> coverage = new Map<String, Object>{
+        Map<String, Object> coverageJson = new Map<String, Object>{
             'applicationId' => req.applicationId,
             'asOfDate' => String.valueOf(Date.today()),
             'totals' => new Map<String, Object>{
-                'total' => totalCount,
-                'filled' => filledCount,
+                'total' => coverage.totalCount,
+                'filled' => coverage.filledCount,
                 'missing' => missingCount
             },
-            'filledCategoryNames' => filledNames,
-            'missingCategoryNames' => missingNames,
-            'rows' => rows,
+            'filledCategoryNames' => coverage.filledNames,
+            'missingCategoryNames' => coverage.missingNames,
+            'rows' => coverage.rows,
             'parties' => partyTypeMap
         };
 
         res.isSuccess = true;
-        res.coverageJson = JSON.serialize(coverage);
-        res.totalCount = totalCount;
-        res.filledCount = filledCount;
+        res.coverageJson = JSON.serialize(coverageJson);
+        res.totalCount = coverage.totalCount;
+        res.filledCount = coverage.filledCount;
         res.missingCount = missingCount;
         res.borrowerName = borrowerNameJoined;
-        res.reviewedClassificationJson = mergeJsonItems(res.reviewedClassificationJsonStrings);
-        res.reviewedSanityJson = mergeJsonItems(res.reviewedSanityJsonStrings);
+        res.reviewedClassificationJson = AIDocReviewJsonUtil.mergeJsonItems(res.reviewedClassificationJsonStrings);
+        res.reviewedSanityJson = AIDocReviewJsonUtil.mergeJsonItems(res.reviewedSanityJsonStrings);
         return res;
     }
 
-    private static Map<String, StoredReview> parseStoredReviews(String feedbackJson) {
-        Map<String, StoredReview> reviewsByDocId = new Map<String, StoredReview>();
-        if (String.isBlank(feedbackJson)) {
-            return reviewsByDocId;
-        }
-
-        try {
-            Object parsed = JSON.deserializeUntyped(feedbackJson);
-            if (!(parsed instanceof Map<String, Object>)) {
-                return reviewsByDocId;
-            }
-            Map<String, Object> rawByDocId = (Map<String, Object>) parsed;
-            for (String docId : rawByDocId.keySet()) {
-                Object rawReview = rawByDocId.get(docId);
-                if (rawReview instanceof Map<String, Object>) {
-                    Map<String, Object> reviewMap = (Map<String, Object>) rawReview;
-                    reviewsByDocId.put(docId, new StoredReview(
-                        valueAsString(reviewMap.get(CLASSIFICATION_JSON_KEY)),
-                        valueAsString(reviewMap.get(SANITY_JSON_KEY))
-                    ));
-                }
-            }
-        } catch (Exception ignored) {
-            return new Map<String, StoredReview>();
-        }
-        return reviewsByDocId;
-    }
-
-    private static String mergeJsonItems(List<String> jsonStrings) {
-        if (jsonStrings == null || jsonStrings.isEmpty()) {
-            return '{"items":[]}';
-        }
-
-        List<Object> allItems = new List<Object>();
-        for (String jsonString : jsonStrings) {
-            if (String.isBlank(jsonString)) {
-                continue;
-            }
-            addJsonItems(allItems, jsonString);
-        }
-        return JSON.serialize(new Map<String, Object>{ 'items' => allItems });
-    }
-
-    private static void addJsonItems(List<Object> allItems, String rawJson) {
-        String cleaned = extractJsonObject(rawJson);
-        if (String.isBlank(cleaned)) {
+    private static void addCategoryToResponse(
+        clcommon__Document_Category__c category,
+        ResponseBuildState state
+    ) {
+        if (state.context.groupCatIds.contains(category.Id)) {
             return;
         }
-        try {
-            Map<String, Object> parsed = (Map<String, Object>) JSON.deserializeUntyped(cleaned);
-            Object items = parsed.get('items');
-            if (items instanceof List<Object>) {
-                allItems.addAll((List<Object>) items);
-            }
-        } catch (Exception ignored) {
-            allItems.add(new Map<String, Object>{
-                'documentName' => 'Unknown',
-                'status' => 'UNREADABLE',
-                'severity' => 'warning',
-                'detail' => cleaned.left(240)
-            });
+
+        Integer fileCount = state.context.docIdsByCatId.containsKey(category.Id)
+            ? state.context.docIdsByCatId.get(category.Id).size()
+            : 0;
+        state.coverage.addSlot(category, fileCount);
+        if (fileCount > 0) {
+            addReviewRows(category, state);
         }
     }
 
-    private static String extractJsonObject(String rawJson) {
-        String cleaned = rawJson == null ? '' : rawJson.trim();
-        if (cleaned.startsWith('```')) {
-            Integer jsonStart = cleaned.indexOf('{');
-            Integer jsonEnd = cleaned.lastIndexOf('}');
-            if (jsonStart >= 0 && jsonEnd > jsonStart) {
-                return cleaned.substring(jsonStart, jsonEnd + 1);
-            }
+    private static void addReviewRows(
+        clcommon__Document_Category__c category,
+        ResponseBuildState state
+    ) {
+        AIDocReviewPartyResolver.PartyContext party = AIDocReviewPartyResolver.resolvePartyForCategory(
+            category,
+            state.context.categoriesById,
+            state.context.partyByAccountId
+        );
+        Map<String, AIDocReviewFeedbackUtil.StoredReview> storedReviews =
+            AIDocReviewFeedbackUtil.parseStoredReviews(category.AI_Review_Feedback_JSON__c);
+        ReviewCategoryState reviewState = new ReviewCategoryState();
+        reviewState.category = category;
+        reviewState.party = party;
+        reviewState.storedReviews = storedReviews;
+        reviewState.res = state.res;
+        for (Id docId : state.context.docIdsByCatId.get(category.Id)) {
+            addReviewRow(reviewState, docId);
         }
-        return cleaned;
     }
 
-    private static String valueAsString(Object value) {
-        return value == null ? '' : String.valueOf(value);
+    private static void addReviewRow(
+        ReviewCategoryState state,
+        Id docId
+    ) {
+        AIDocReviewFeedbackUtil.StoredReview storedReview = state.storedReviews.get(String.valueOf(docId));
+        if (storedReview != null && storedReview.hasCompleteReview()) {
+            state.res.reviewedClassificationJsonStrings.add(
+                AIDocReviewJsonUtil.normalizeDocumentName(
+                    storedReview.classificationJson,
+                    state.category.clcommon__Category_Name__c
+                )
+            );
+            state.res.reviewedSanityJsonStrings.add(
+                AIDocReviewJsonUtil.normalizeDocumentName(
+                    storedReview.sanityJson,
+                    state.category.clcommon__Category_Name__c
+                )
+            );
+            return;
+        }
+        state.res.encodedRows.add(JSON.serialize(new Map<String, String>{
+            'fileContentDocumentId' => String.valueOf(docId),
+            'categoryName' => nullToEmpty(state.category.clcommon__Category_Name__c),
+            'partyName' => nullToEmpty(state.party.partyName),
+            'partyType' => nullToEmpty(state.party.partyType),
+            'documentCategoryId' => String.valueOf(state.category.Id)
+        }));
     }
 
     public class Request {
@@ -371,7 +255,7 @@ public with sharing class AIDocCoverageCheck {
         @InvocableVariable(label='Borrower Name' description='Comma-joined BORROWER party names from clcommon__Party__c. Empty if none.')
         public String borrowerName;
 
-        @InvocableVariable(label='Encoded Rows' description='One pipe-encoded "<docId>|<categoryName>|<partyName>|<partyType>|<categoryId>" string per attached file that still needs AI review.')
+        @InvocableVariable(label='Encoded Rows' description='One JSON row per attached file that still needs AI review.')
         public List<String> encodedRows;
 
         @InvocableVariable(label='Reviewed Classification JSON' description='Merged classification JSON from files already stored on document categories.')
@@ -396,26 +280,60 @@ public with sharing class AIDocCoverageCheck {
         }
     }
 
-    private class PartyContext {
-        public String partyName;
-        public String partyType;
-        public PartyContext(String partyName, String partyType) {
-            this.partyName = partyName;
-            this.partyType = partyType;
+    private class CoverageContext {
+        public Map<Id, clcommon__Document_Category__c> categoriesById =
+            new Map<Id, clcommon__Document_Category__c>();
+        public Map<Id, List<clcommon__Document_Category__c>> catsByApp =
+            new Map<Id, List<clcommon__Document_Category__c>>();
+        public Set<Id> groupCatIds = new Set<Id>();
+        public Map<Id, Set<Id>> docIdsByCatId = new Map<Id, Set<Id>>();
+        public Map<Id, Map<String, List<String>>> partiesByApp =
+            new Map<Id, Map<String, List<String>>>();
+        public Map<Id, AIDocReviewPartyResolver.PartyContext> partyByAccountId =
+            new Map<Id, AIDocReviewPartyResolver.PartyContext>();
+    }
+
+    private class CoverageAccumulator {
+        public Integer totalCount = 0;
+        public Integer filledCount = 0;
+        public List<String> missingNames = new List<String>();
+        public List<String> filledNames = new List<String>();
+        public List<Map<String, Object>> rows = new List<Map<String, Object>>();
+
+        public void addSlot(clcommon__Document_Category__c category, Integer fileCount) {
+            totalCount++;
+            if (fileCount > 0) {
+                filledCount++;
+                filledNames.add(category.clcommon__Category_Name__c);
+            } else {
+                missingNames.add(category.clcommon__Category_Name__c);
+            }
+            rows.add(new Map<String, Object>{
+                'id' => category.Id,
+                'name' => category.clcommon__Category_Name__c,
+                'fileCount' => fileCount,
+                'onFile' => fileCount > 0,
+                'aiReviewed' => category.AI_Reviewed__c
+            });
         }
     }
 
-    private class StoredReview {
-        public String classificationJson;
-        public String sanityJson;
+    private class ResponseBuildState {
+        public Response res;
+        public CoverageAccumulator coverage;
+        public CoverageContext context;
 
-        public StoredReview(String classificationJson, String sanityJson) {
-            this.classificationJson = classificationJson;
-            this.sanityJson = sanityJson;
+        public ResponseBuildState(Response res, CoverageAccumulator coverage, CoverageContext context) {
+            this.res = res;
+            this.coverage = coverage;
+            this.context = context;
         }
+    }
 
-        public Boolean hasCompleteReview() {
-            return String.isNotBlank(classificationJson) && String.isNotBlank(sanityJson);
-        }
+    private class ReviewCategoryState {
+        public clcommon__Document_Category__c category;
+        public AIDocReviewPartyResolver.PartyContext party;
+        public Map<String, AIDocReviewFeedbackUtil.StoredReview> storedReviews;
+        public Response res;
     }
 }

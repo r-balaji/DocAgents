@@ -15,6 +15,10 @@
         <value xsi:type="xsd:boolean">false</value>
     </values>
     <values>
+        <field>Review_Prompt_Route__c</field>
+        <value xsi:type="xsd:string">FINANCIAL_STATEMENT</value>
+    </values>
+    <values>
         <field>Sort_Order__c</field>
         <value xsi:type="xsd:double">110</value>
     </values>

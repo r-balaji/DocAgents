@@ -15,6 +15,10 @@
         <value xsi:type="xsd:boolean">false</value>
     </values>
     <values>
+        <field>Review_Prompt_Route__c</field>
+        <value xsi:type="xsd:string">WAGE_INCOME</value>
+    </values>
+    <values>
         <field>Sort_Order__c</field>
         <value xsi:type="xsd:double">40</value>
     </values>

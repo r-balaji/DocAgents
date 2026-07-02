@@ -15,6 +15,10 @@
         <value xsi:type="xsd:boolean">true</value>
     </values>
     <values>
+        <field>Review_Prompt_Route__c</field>
+        <value xsi:type="xsd:string">BANK_STATEMENT</value>
+    </values>
+    <values>
         <field>Sort_Order__c</field>
         <value xsi:type="xsd:double">20</value>
     </values>
