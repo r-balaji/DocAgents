@@ -157,6 +157,8 @@ export default class AiDocumentReview extends LightningElement {
             this.dispatchEvent(new FlowNavigationFinishEvent());
         } else if (this.availableActions.includes('NEXT')) {
             this.dispatchEvent(new FlowNavigationNextEvent());
+        } else {
+            this.dispatchEvent(new CustomEvent('finish'));
         }
     }
 }

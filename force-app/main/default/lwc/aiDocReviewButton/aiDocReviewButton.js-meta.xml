@@ -3,7 +3,7 @@
     <apiVersion>66.0</apiVersion>
     <isExposed>true</isExposed>
     <masterLabel>AI Doc Review Button</masterLabel>
-    <description>Launches the AIDocCoverageReview flow for the current Application record.</description>
+    <description>Shows cached AI Document Review results or launches the review flow for the current Application record.</description>
     <targets>
         <target>lightning__RecordPage</target>
         <target>lightning__AppPage</target>
