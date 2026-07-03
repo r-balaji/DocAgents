@@ -10,6 +10,10 @@
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
+        <apexClass>AIDocReviewLaunchController</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>AIDocSplitFileRow</apexClass>
         <enabled>true</enabled>
     </classAccesses>
