@@ -139,7 +139,7 @@ public with sharing class SplitJobController {
      * Upload a chunk PDF (base64) back to Salesforce as a temporary ContentVersion.
      * The LWC slices the source bundle in-browser and calls this once per chunk.
      * Returns the chunk's new ContentDocumentId, which the LWC passes back in
-     * enqueueChunkClassification so the AI prompt has a file to read from.
+     * enqueueChunkClassifications so the AI prompt has a file to read from.
      *
      * The library Id is stored on the resulting ContentVersion so the chunk is
      * visible to the splitter pipeline, but the LWC could also choose to upload
@@ -189,11 +189,18 @@ public with sharing class SplitJobController {
      * the same status events the UI mode emits.
      */
     @AuraEnabled
-    public static Id startHeadlessSplit(Id sourceContentDocumentId, Id targetRecordId) {
+    public static Id startHeadlessSplit(
+        Id sourceContentDocumentId,
+        Id targetRecordId,
+        Id libraryId,
+        Id targetFolderId
+    ) {
         try {
             DocSplitterInvocable.Request req = new DocSplitterInvocable.Request();
             req.sourceContentDocumentId = sourceContentDocumentId;
             req.targetRecordId = targetRecordId;
+            req.libraryId = libraryId != null ? libraryId : getLibraryIdForFile(sourceContentDocumentId);
+            req.targetFolderId = targetFolderId != null ? targetFolderId : getFolderIdForFile(sourceContentDocumentId);
             List<DocSplitterInvocable.Response> res =
                 DocSplitterInvocable.startHeadlessSplit(new List<DocSplitterInvocable.Request>{ req });
             return res[0].jobId;
@@ -203,9 +210,9 @@ public with sharing class SplitJobController {
     }
 
     @AuraEnabled
-    public static void enqueueChunkClassification(Id jobId, Integer chunkIndex, Id chunkContentDocumentId, Integer pageOffset) {
+    public static void enqueueChunkClassifications(Id jobId, String chunksJson) {
         try {
-            SplitJobService.enqueueChunkClassification(jobId, chunkIndex, chunkContentDocumentId, pageOffset);
+            SplitJobService.enqueueChunkClassifications(jobId, parseChunkWork(chunksJson));
         } catch (Exception e) {
             throw new AuraHandledException(e.getMessage());
         }
@@ -223,6 +230,59 @@ public with sharing class SplitJobController {
             SplitJobService.startSaving(jobId, requests, batchSize);
         } catch (Exception e) {
             throw new AuraHandledException(e.getMessage());
+        }
+    }
+
+    /**
+     * Save one small browser-produced batch of split PDFs. This avoids the Aura
+     * request-size failure caused by sending every base64 output in one JSON
+     * payload from the LWC.
+     */
+    @AuraEnabled
+    public static SaveBatchResult saveSplitBatch(
+        Id jobId,
+        String requestsJson,
+        Integer documentsSavedSoFar,
+        String typeBreakdownJson,
+        Boolean isFinalBatch
+    ) {
+        try {
+            List<SplitSaveRequest> requests = parseSaveRequests(requestsJson);
+            Integer savedTotal = SplitJobService.saveBrowserBatch(
+                jobId,
+                requests,
+                documentsSavedSoFar,
+                typeBreakdownJson,
+                isFinalBatch
+            );
+            SaveBatchResult result = new SaveBatchResult();
+            result.documentsSaved = savedTotal;
+            result.isComplete = isFinalBatch == true;
+            return result;
+        } catch (Exception e) {
+            throw new AuraHandledException(e.getMessage());
+        }
+    }
+
+    /**
+     * Mark a split job failed from the browser-driven portion of the pipeline.
+     * The LWC owns the physical pdf-lib split in UI mode, so JavaScript failures
+     * must be reflected back on Split_Job__c instead of leaving the job in
+     * Splitting forever.
+     */
+    @AuraEnabled
+    public static void markJobFailed(Id jobId, String stage, String errorDetail) {
+        if (jobId == null) {
+            return;
+        }
+        try {
+            String effectiveStage = String.isBlank(stage) ? 'Browser split' : stage;
+            String effectiveDetail = String.isBlank(errorDetail)
+                ? 'Browser-side split failed before the save step completed.'
+                : errorDetail;
+            SplitJobService.failJob(jobId, effectiveStage, effectiveDetail);
+        } catch (Exception e) {
+            throw new AuraHandledException('Could not mark split job failed: ' + e.getMessage());
         }
     }
 
@@ -329,9 +389,12 @@ public with sharing class SplitJobController {
                                             AND FileType = 'PDF'
                                           WITH USER_MODE
                                           ORDER BY CreatedDate DESC
-                                          LIMIT 20];
+                                          LIMIT 50];
             List<JobOutputFile> out = new List<JobOutputFile>();
             for (ContentDocument d : docs) {
+                if (isTempChunkTitle(d.Title)) {
+                    continue;
+                }
                 JobOutputFile f = new JobOutputFile();
                 f.id = d.Id;
                 f.title = d.Title;
@@ -340,6 +403,9 @@ public with sharing class SplitJobController {
                 f.latestVersionId = d.LatestPublishedVersionId;
                 f.createdDate = d.CreatedDate;
                 out.add(f);
+                if (out.size() == 20) {
+                    break;
+                }
             }
             return out;
         } catch (Exception e) {
@@ -366,5 +432,41 @@ public with sharing class SplitJobController {
             return new List<SplitSaveRequest>();
         }
         return (List<SplitSaveRequest>) JSON.deserialize(requestsJson, List<SplitSaveRequest>.class);
+    }
+
+    @TestVisible
+    private static List<PdfServiceChunkClassifyBatch.ChunkWork> parseChunkWork(String chunksJson) {
+        List<PdfServiceChunkClassifyBatch.ChunkWork> work = new List<PdfServiceChunkClassifyBatch.ChunkWork>();
+        if (String.isBlank(chunksJson)) {
+            return work;
+        }
+        List<ChunkWorkRequest> requests = (List<ChunkWorkRequest>) JSON.deserialize(chunksJson, List<ChunkWorkRequest>.class);
+        for (ChunkWorkRequest request : requests) {
+            if (request == null) {
+                continue;
+            }
+            work.add(new PdfServiceChunkClassifyBatch.ChunkWork(
+                request.chunkIndex,
+                request.chunkContentDocumentId,
+                request.pageOffset
+            ));
+        }
+        return work;
+    }
+
+    @TestVisible
+    private static Boolean isTempChunkTitle(String title) {
+        return !String.isBlank(title) && title.startsWith('bundle_chunk_');
+    }
+
+    public class ChunkWorkRequest {
+        public Integer chunkIndex;
+        public Id chunkContentDocumentId;
+        public Integer pageOffset;
+    }
+
+    public class SaveBatchResult {
+        @AuraEnabled public Integer documentsSaved;
+        @AuraEnabled public Boolean isComplete;
     }
 }

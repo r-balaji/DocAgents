@@ -58,6 +58,7 @@ public class AIDocTestFactory {
         insert l;
 
         insert new clcommon__Category_Attachment_Association__c(
+            Name = (title + '.pdf').left(80),
             clcommon__Document_Category__c = linkedEntityId,
             clcommon__Attachment_Id__c = l.Id,
             clcommon__Content_Document_Id__c = fresh.ContentDocumentId,

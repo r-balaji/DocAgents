@@ -69,6 +69,7 @@ public with sharing class PdfServiceSplitQueueable implements Queueable, Databas
             // them, tally types, and finalize.
             SplitJobService.markSaving(jobId);
             linkOutputsToJob(jobId, res.outputs);
+            markOutputsAiCreated(res.outputs);
 
             Map<String, Integer> typeCounts = new Map<String, Integer>();
             for (PdfServiceClient.SegmentInput s : segments) {
@@ -109,10 +110,14 @@ public with sharing class PdfServiceSplitQueueable implements Queueable, Databas
      */
     @TestVisible
     private static void linkOutputsToJob(Id jobId, List<PdfServiceClient.SplitOutput> outputs) {
-        if (outputs == null || outputs.isEmpty()) return;
+        if (outputs == null || outputs.isEmpty()) {
+            return;
+        }
         List<ContentDocumentLink> links = new List<ContentDocumentLink>();
         for (PdfServiceClient.SplitOutput o : outputs) {
-            if (String.isBlank(o.contentDocumentId)) continue;
+            if (String.isBlank(o.contentDocumentId)) {
+                continue;
+            }
             links.add(new ContentDocumentLink(
                 ContentDocumentId = (Id) o.contentDocumentId,
                 LinkedEntityId = jobId,
@@ -125,29 +130,54 @@ public with sharing class PdfServiceSplitQueueable implements Queueable, Databas
         }
     }
 
+    @TestVisible
+    private static Integer markOutputsAiCreated(List<PdfServiceClient.SplitOutput> outputs) {
+        if (outputs == null || outputs.isEmpty()) {
+            return 0;
+        }
+
+        Set<Id> contentDocumentIds = new Set<Id>();
+        for (PdfServiceClient.SplitOutput output : outputs) {
+            if (String.isBlank(output.contentDocumentId)) {
+                continue;
+            }
+            contentDocumentIds.add((Id) output.contentDocumentId);
+        }
+        return SplitJobService.markContentDocumentsAiCreated(contentDocumentIds);
+    }
+
     /**
      * Convert the job's merged segments JSON into the SegmentInput DTOs the
-     * service expects. Builds per-instance index keys to drive Other_N and
-     * BankStatement_Chase_John_2 style filenames.
+     * service expects. Builds per-instance index keys to drive
+     * BankStatement_Chase_John_2 style filenames and combines all OTHER pages
+     * into one catch-all output.
+     * @param mergedJson Normalized segment JSON stored on the split job.
+     * @return Segment inputs in the same filename/order shape used by final PDF splitting.
      */
-    @TestVisible
-    private static List<PdfServiceClient.SegmentInput> buildSegmentInputs(String mergedJson) {
+    public static List<PdfServiceClient.SegmentInput> buildSegmentInputs(String mergedJson) {
         List<PdfServiceClient.SegmentInput> out = new List<PdfServiceClient.SegmentInput>();
-        if (String.isBlank(mergedJson)) return out;
+        if (String.isBlank(mergedJson)) {
+            return out;
+        }
 
         List<Object> segments = (List<Object>) JSON.deserializeUntyped(mergedJson);
         Map<String, Integer> counts = new Map<String, Integer>();
+        List<Integer> otherPages = new List<Integer>();
 
         for (Object item : segments) {
             Map<String, Object> m = (Map<String, Object>) item;
-            String type = (String) m.get('documentType');
+            String type = String.isBlank((String) m.get('documentType')) ? 'OTHER' : (String) m.get('documentType');
             String source = (String) m.get('sourceInstitution');
             String party = (String) m.get('namedParty');
             String label = (String) m.get('instanceLabel');
+            List<Integer> pages = parsePages(m.get('pages'));
 
-            String key = (type == 'OTHER')
-                ? 'OTHER'
-                : type + '|' + (source == null ? '' : source) + '|' + (party == null ? '' : party);
+            if (type == 'OTHER') {
+                otherPages.addAll(pages);
+                continue;
+            }
+
+            String key = type + '|' + (source == null ? '' : source) + '|' + (party == null ? '' : party);
             Integer idx = (counts.containsKey(key) ? counts.get(key) : 0) + 1;
             counts.put(key, idx);
 
@@ -156,9 +186,21 @@ public with sharing class PdfServiceSplitQueueable implements Queueable, Databas
             si.sourceInstitution = source;
             si.namedParty = party;
             si.instanceLabel = label;
-            si.pages = parsePages(m.get('pages'));
+            si.pages = pages;
             si.fileName = SplitSaveRequest.buildFileName(type, source, party, idx);
             out.add(si);
+        }
+
+        List<Integer> normalizedOtherPages = uniqueSortedPositivePages(otherPages);
+        if (!normalizedOtherPages.isEmpty()) {
+            PdfServiceClient.SegmentInput other = new PdfServiceClient.SegmentInput();
+            other.documentType = 'OTHER';
+            other.sourceInstitution = null;
+            other.namedParty = null;
+            other.instanceLabel = null;
+            other.pages = normalizedOtherPages;
+            other.fileName = SplitSaveRequest.buildFileName('OTHER', null, null, 1);
+            out.add(other);
         }
         return out;
     }
@@ -166,11 +208,35 @@ public with sharing class PdfServiceSplitQueueable implements Queueable, Databas
     @TestVisible
     private static List<Integer> parsePages(Object pagesObj) {
         List<Integer> out = new List<Integer>();
-        if (!(pagesObj instanceof List<Object>)) return out;
-        for (Object p : (List<Object>) pagesObj) {
-            if (p instanceof Integer) out.add((Integer) p);
-            else if (p instanceof Decimal) out.add(((Decimal) p).intValue());
+        if (!(pagesObj instanceof List<Object>)) {
+            return out;
         }
+        for (Object p : (List<Object>) pagesObj) {
+            if (p instanceof Integer) {
+                out.add((Integer) p);
+            } else if (p instanceof Decimal) {
+                out.add(((Decimal) p).intValue());
+            }
+        }
+        return out;
+    }
+
+    @TestVisible
+    private static List<Integer> uniqueSortedPositivePages(List<Integer> pages) {
+        Set<Integer> seen = new Set<Integer>();
+        if (pages == null) {
+            return new List<Integer>();
+        }
+        for (Integer page : pages) {
+            if (page != null && page > 0) {
+                seen.add(page);
+            }
+        }
+        List<Integer> out = new List<Integer>();
+        for (Integer page : seen) {
+            out.add(page);
+        }
+        out.sort();
         return out;
     }
 

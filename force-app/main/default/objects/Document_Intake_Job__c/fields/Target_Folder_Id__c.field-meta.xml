@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Target_Folder_Id__c</fullName>
+    <description>Optional ContentFolder Id used by the splitter service for output files.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Optional 15- or 18-character ContentFolder Id where split output files should be saved.</inlineHelpText>
+    <label>Target Folder Id</label>
+    <length>18</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

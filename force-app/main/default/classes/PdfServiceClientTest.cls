@@ -3,8 +3,8 @@
  *
  * Uses Test.setMock(HttpCalloutMock) to fake responses from the self-hosted
  * pdf-lib service. Exercises happy path, retry-on-5xx, error mapping, and
- * the config-missing guard. The Custom Metadata Type record is bypassed via
- * the @TestVisible testApiKeyOverride / testEndpointOverride static fields.
+ * Named Credential fallback. Tests bypass the endpoint through the
+ * @TestVisible testEndpointOverride static field.
  */
 @IsTest
 private class PdfServiceClientTest {
@@ -17,9 +17,8 @@ private class PdfServiceClientTest {
     }
 
     @IsTest
-    static void shouldConstructCleanly_WhenNoEndpointOverride() {
-        // Without a CMT endpoint override, the client uses the Named Credential.
-        // Constructor must not throw — the External Credential handles auth.
+    static void shouldConstructCleanly_WhenUsingNamedCredential() {
+        // The constructor uses the Named Credential outside test overrides.
         Test.startTest();
         PdfServiceClient client = new PdfServiceClient();
         Assert.isNotNull(client);
@@ -29,7 +28,8 @@ private class PdfServiceClientTest {
     @IsTest
     static void shouldReturnChunks_WhenServiceResponds200() {
         stubConfig();
-        Test.setMock(HttpCalloutMock.class, new MockResponse(200, fakeChunksResponseJson()));
+        MockResponse mock = new MockResponse(200, fakeChunksResponseJson());
+        Test.setMock(HttpCalloutMock.class, mock);
 
         Test.startTest();
         PdfServiceClient.ChunksResponse res = new PdfServiceClient().callChunks(buildChunksRequest());
@@ -40,6 +40,8 @@ private class PdfServiceClientTest {
         Assert.areEqual(0, res.chunks[0].chunkIndex);
         Assert.areEqual('069fakechunk0', res.chunks[0].contentDocumentId);
         Assert.areEqual(1, res.chunks[0].pageOffset);
+        Assert.isTrue(mock.lastBody.contains('"maxChunkBytes":10485760'), 'Request should include 10 MB byte cap');
+        Assert.isFalse(mock.lastBody.contains('chunkSize'), 'Request should not include the legacy page-count cap');
     }
 
     @IsTest
@@ -124,7 +126,7 @@ private class PdfServiceClientTest {
         r.sfInstanceUrl = 'https://example.my.salesforce.com';
         r.sfAccessToken = 'fakeToken';
         r.sfApiVersion = '60.0';
-        r.chunkSize = 8;
+        r.maxChunkBytes = 10 * 1024 * 1024;
         r.overlap = 2;
         return r;
     }
@@ -175,6 +177,7 @@ private class PdfServiceClientTest {
         String fixedBody;
         List<MockFrame> queue = new List<MockFrame>();
         Integer callCount = 0;
+        String lastBody;
 
         public MockResponse() {}
         public MockResponse(Integer status, String body) {
@@ -184,6 +187,7 @@ private class PdfServiceClientTest {
 
         public HttpResponse respond(HttpRequest req) {
             callCount++;
+            lastBody = req.getBody();
             HttpResponse res = new HttpResponse();
             res.setHeader('Content-Type', 'application/json');
             MockFrame frame = queue.isEmpty()

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Library_Name__c</fullName>
+    <description>Display name of the Salesforce content library where intake output should be stored.</description>
+    <externalId>false</externalId>
+    <fieldManageability>SubscriberControlled</fieldManageability>
+    <inlineHelpText>Enter the Salesforce library name exactly as it appears in Files. Used when Library Developer Name is blank or unavailable.</inlineHelpText>
+    <label>Library Name</label>
+    <length>255</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

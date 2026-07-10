@@ -11,17 +11,6 @@ public with sharing class AIDocReviewPromptRouter {
     public static final String ROUTE_BUSINESS_DOCUMENT = 'BUSINESS_DOCUMENT';
     public static final String ROUTE_GENERIC = 'GENERIC';
 
-    private static final Set<String> ALLOWED_ROUTES = new Set<String>{
-        ROUTE_BANK_STATEMENT,
-        ROUTE_TAX_RETURN,
-        ROUTE_WAGE_INCOME,
-        ROUTE_IDENTITY,
-        ROUTE_ENTITY_FORMATION,
-        ROUTE_FINANCIAL_STATEMENT,
-        ROUTE_BUSINESS_DOCUMENT,
-        ROUTE_GENERIC
-    };
-
     /**
      * @param requests Flow requests containing a document category label.
      * @return Prompt route decisions for each request.
@@ -33,58 +22,22 @@ public with sharing class AIDocReviewPromptRouter {
     )
     public static List<Response> execute(List<Request> requests) {
         List<Response> responses = new List<Response>();
-        List<Document_Type__mdt> documentTypes = loadActiveDocumentTypes();
+        if (requests == null) {
+            return responses;
+        }
         for (Request req : requests) {
-            Response res = resolve(req == null ? null : req.categoryName, documentTypes);
-            responses.add(res);
+            responses.add(resolve(req == null ? null : req.categoryName));
         }
         return responses;
     }
 
     @TestVisible
-    private static Response resolve(String categoryName, List<Document_Type__mdt> documentTypes) {
+    private static Response resolve(String categoryName) {
         Response res = new Response();
-        res.route = ROUTE_GENERIC;
+        res.route = AIDocReviewPromptRouteMatcher.inferRouteFromKeywords(categoryName);
         res.matchedTypeCode = '';
         res.matchedLabel = '';
-
-        if (String.isBlank(categoryName)) {
-            return res;
-        }
-
-        Document_Type__mdt matchedType = AIDocReviewPromptRouteMatcher.findMatchingDocumentType(
-            categoryName,
-            documentTypes
-        );
-        if (matchedType != null) {
-            res.route = normalizeRoute(matchedType.Review_Prompt_Route__c);
-            res.matchedTypeCode = String.isBlank(matchedType.Type_Code__c) ? '' : matchedType.Type_Code__c;
-            res.matchedLabel = String.isBlank(matchedType.Label) ? '' : matchedType.Label;
-            if (res.route != ROUTE_GENERIC || String.isNotBlank(matchedType.Review_Prompt_Route__c)) {
-                return res;
-            }
-        }
-
-        res.route = AIDocReviewPromptRouteMatcher.inferRouteFromKeywords(categoryName);
         return res;
-    }
-
-    private static List<Document_Type__mdt> loadActiveDocumentTypes() {
-        List<Document_Type__mdt> documentTypes = new List<Document_Type__mdt>();
-        for (Document_Type__mdt documentType : Document_Type__mdt.getAll().values()) {
-            if (documentType.Is_Active__c) {
-                documentTypes.add(documentType);
-            }
-        }
-        return documentTypes;
-    }
-
-    private static String normalizeRoute(String route) {
-        if (String.isBlank(route)) {
-            return ROUTE_GENERIC;
-        }
-        String normalizedRoute = route.trim().toUpperCase();
-        return ALLOWED_ROUTES.contains(normalizedRoute) ? normalizedRoute : ROUTE_GENERIC;
     }
 
     public class Request {
@@ -96,10 +49,10 @@ public with sharing class AIDocReviewPromptRouter {
         @InvocableVariable(label='Route' description='Review prompt route bucket.')
         public String route;
 
-        @InvocableVariable(label='Matched Type Code' description='Matched Document_Type__mdt Type_Code__c, when found.')
+        @InvocableVariable(label='Matched Type Code' description='Reserved compatibility output; currently empty.')
         public String matchedTypeCode;
 
-        @InvocableVariable(label='Matched Label' description='Matched Document_Type__mdt label, when found.')
+        @InvocableVariable(label='Matched Label' description='Reserved compatibility output; currently empty.')
         public String matchedLabel;
     }
 

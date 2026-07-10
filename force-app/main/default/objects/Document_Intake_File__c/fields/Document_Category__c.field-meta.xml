@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Document_Category__c</fullName>
+    <description>Document category selected by deterministic mapping or review fallback for this file.</description>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <inlineHelpText>Populated after the split output is mapped to an application document category. Low-confidence items may be placed in Others.</inlineHelpText>
+    <label>Document Category</label>
+    <referenceTo>clcommon__Document_Category__c</referenceTo>
+    <relationshipLabel>Document Intake Files</relationshipLabel>
+    <relationshipName>Document_Intake_Files</relationshipName>
+    <required>false</required>
+    <type>Lookup</type>
+</CustomField>

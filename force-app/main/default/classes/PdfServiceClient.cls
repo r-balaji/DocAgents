@@ -6,9 +6,8 @@
  * the byte transfer, so PDF bytes never go through the Apex callout payload
  * (~12 MB cap). File size is bounded by Salesforce Files (2 GB), not Apex.
  *
- * Endpoint resolution (in order):
- *   1. Pdf_Service_Config__mdt.Default.Endpoint_Override__c — if populated
- *   2. callout:PdfLibService — the Named Credential's configured URL
+ * The service endpoint and authentication are owned by the PdfLibService
+ * Named Credential so changing providers does not require an Apex change.
  *
  * Auth: the platform auto-injects "Authorization: Bearer <key>" via the
  * PdfLibServiceCred External Credential. No Apex code touches the key.
@@ -38,10 +37,7 @@ public with sharing class PdfServiceClient {
             this.endpointBase = testEndpointOverride;
             return;
         }
-        Pdf_Service_Config__mdt cfg = readConfig();
-        this.endpointBase = (cfg != null && String.isNotBlank(cfg.Endpoint_Override__c))
-            ? cfg.Endpoint_Override__c
-            : NAMED_CRED_PREFIX;
+        this.endpointBase = NAMED_CRED_PREFIX;
     }
 
     /**
@@ -110,14 +106,6 @@ public with sharing class PdfServiceClient {
         throw new PdfServiceException('PDF service returned ' + code + ': ' + res.getBody().left(500));
     }
 
-    @TestVisible
-    private static Pdf_Service_Config__mdt readConfig() {
-        // Optional record — used only for the Endpoint_Override__c escape hatch.
-        // Returns null cleanly when the record isn't deployed; constructor falls
-        // back to the Named Credential URL.
-        return Pdf_Service_Config__mdt.getInstance('Default');
-    }
-
     // ----- DTOs --------------------------------------------------------------
 
     public class SfContext {
@@ -133,7 +121,7 @@ public with sharing class PdfServiceClient {
         public String sfAccessToken;
         public String sfApiVersion;
         public String libraryId;
-        public Integer chunkSize;
+        public Integer maxChunkBytes;
         public Integer overlap;
     }
 

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Client_Submission_Key__c</fullName>
+    <description>Unique application-and-submission key used by the intake REST API for idempotency.</description>
+    <externalId>true</externalId>
+    <inlineHelpText>Generated as Application Id plus client submission id. The REST API uses this field to prevent duplicate intake jobs on retry.</inlineHelpText>
+    <label>Client Submission Key</label>
+    <length>255</length>
+    <required>true</required>
+    <type>Text</type>
+    <unique>true</unique>
+</CustomField>

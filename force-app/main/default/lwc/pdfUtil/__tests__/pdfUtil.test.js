@@ -1,49 +1,136 @@
 import {
-    computeChunks,
+    buildBrowserSaveRequests,
+    buildPdfChunksBySize,
+    buildTypeBreakdownJson,
     buildFileName,
+    estimateJsonChars,
     segmentsToSaveRequests,
     uint8ToBase64,
     decodeJobEvent
 } from '../pdfUtil';
 
-describe('computeChunks', () => {
-    it('returns empty for invalid input', () => {
-        expect(computeChunks(0)).toEqual([]);
-        expect(computeChunks(-5)).toEqual([]);
-        expect(computeChunks(null)).toEqual([]);
-        expect(computeChunks('foo')).toEqual([]);
-    });
+function fakePdfEnv(pageSizes) {
+    const sourceDoc = {
+        getPageCount: () => pageSizes.length
+    };
+    const PDFDocument = {
+        create: jest.fn(async () => {
+            const pages = [];
+            return {
+                copyPages: jest.fn(async (_source, pageIndices) => pageIndices.map((index) => ({
+                    byteSize: pageSizes[index]
+                }))),
+                addPage: jest.fn((page) => pages.push(page)),
+                save: jest.fn(async () => {
+                    const byteLength = pages.reduce((total, page) => total + page.byteSize, 0);
+                    return new Uint8Array(byteLength);
+                })
+            };
+        })
+    };
+    return { PDFDocument, sourceDoc };
+}
 
-    it('returns one chunk when totalPages <= chunkSize', () => {
-        const chunks = computeChunks(5, 8, 2);
-        expect(chunks).toEqual([{ chunkIndex: 0, startPage: 1, endPage: 5 }]);
-    });
+describe('buildPdfChunksBySize', () => {
+    it('builds chunks that stay under the byte target', async () => {
+        const { PDFDocument, sourceDoc } = fakePdfEnv([4, 4, 4, 4]);
 
-    it('produces overlapping chunks for a 14-page bundle (default 8/2)', () => {
-        const chunks = computeChunks(14, 8, 2);
-        // Stride = 6. Chunks: 1-8, 7-14.
-        expect(chunks).toEqual([
-            { chunkIndex: 0, startPage: 1, endPage: 8 },
-            { chunkIndex: 1, startPage: 7, endPage: 14 }
+        const chunks = await buildPdfChunksBySize(PDFDocument, sourceDoc, 10, 0);
+
+        expect(chunks.map(({ chunkIndex, startPage, endPage, bytes }) => ({
+            chunkIndex,
+            startPage,
+            endPage,
+            byteLength: bytes.length
+        }))).toEqual([
+            { chunkIndex: 0, startPage: 1, endPage: 2, byteLength: 8 },
+            { chunkIndex: 1, startPage: 3, endPage: 4, byteLength: 8 }
         ]);
     });
 
-    it('covers every page with overlap', () => {
-        // 20 pages, chunk 8, overlap 2 → stride 6. 1-8, 7-14, 13-20.
-        const chunks = computeChunks(20, 8, 2);
-        expect(chunks).toEqual([
-            { chunkIndex: 0, startPage: 1, endPage: 8 },
-            { chunkIndex: 1, startPage: 7, endPage: 14 },
-            { chunkIndex: 2, startPage: 13, endPage: 20 }
+    it('keeps overlap while still progressing', async () => {
+        const { PDFDocument, sourceDoc } = fakePdfEnv([4, 4, 4, 4]);
+
+        const chunks = await buildPdfChunksBySize(PDFDocument, sourceDoc, 10, 1);
+
+        expect(chunks.map(({ chunkIndex, startPage, endPage }) => ({
+            chunkIndex,
+            startPage,
+            endPage
+        }))).toEqual([
+            { chunkIndex: 0, startPage: 1, endPage: 2 },
+            { chunkIndex: 1, startPage: 2, endPage: 3 },
+            { chunkIndex: 2, startPage: 3, endPage: 4 }
         ]);
     });
 
-    it('clamps a too-large overlap to chunkSize-1', () => {
-        // overlap 10 with chunkSize 4 → effective overlap 3, stride 1.
-        const chunks = computeChunks(6, 4, 10);
-        // 1-4, 2-5, 3-6.
-        expect(chunks[0]).toEqual({ chunkIndex: 0, startPage: 1, endPage: 4 });
-        expect(chunks[chunks.length - 1].endPage).toBe(6);
+    it('emits a single oversized page when one page exceeds the target', async () => {
+        const { PDFDocument, sourceDoc } = fakePdfEnv([12, 3]);
+
+        const chunks = await buildPdfChunksBySize(PDFDocument, sourceDoc, 10, 0);
+
+        expect(chunks.map(({ startPage, endPage, bytes }) => ({
+            startPage,
+            endPage,
+            byteLength: bytes.length
+        }))).toEqual([
+            { startPage: 1, endPage: 1, byteLength: 12 },
+            { startPage: 2, endPage: 2, byteLength: 3 }
+        ]);
+    });
+});
+
+describe('buildBrowserSaveRequests', () => {
+    it('keeps a small OTHER request as Other.pdf', async () => {
+        const { PDFDocument, sourceDoc } = fakePdfEnv([5, 5]);
+        const requests = await buildBrowserSaveRequests(PDFDocument, sourceDoc, [{
+            fileName: 'Other.pdf',
+            documentType: 'OTHER',
+            sourceInstitution: null,
+            namedParty: null,
+            instanceLabel: null,
+            pages: [1, 2]
+        }], 10000, 10000);
+
+        expect(requests).toHaveLength(1);
+        expect(requests[0].fileName).toBe('Other.pdf');
+        expect(requests[0].pages).toEqual([1, 2]);
+        expect(requests[0].base64Content).toBeTruthy();
+    });
+
+    it('splits oversized OTHER output into numbered files', async () => {
+        const { PDFDocument, sourceDoc } = fakePdfEnv([100, 100, 100]);
+        const requests = await buildBrowserSaveRequests(PDFDocument, sourceDoc, [{
+            fileName: 'Other.pdf',
+            documentType: 'OTHER',
+            sourceInstitution: null,
+            namedParty: null,
+            instanceLabel: null,
+            pages: [1, 2, 3]
+        }], 150, 10000);
+
+        expect(requests.map((req) => ({
+            fileName: req.fileName,
+            documentType: req.documentType,
+            pages: req.pages
+        }))).toEqual([
+            { fileName: 'Other_1.pdf', documentType: 'OTHER', pages: [1] },
+            { fileName: 'Other_2.pdf', documentType: 'OTHER', pages: [2] },
+            { fileName: 'Other_3.pdf', documentType: 'OTHER', pages: [3] }
+        ]);
+    });
+
+    it('throws when a known document output is too large', async () => {
+        const { PDFDocument, sourceDoc } = fakePdfEnv([100]);
+
+        await expect(buildBrowserSaveRequests(PDFDocument, sourceDoc, [{
+            fileName: 'BankStatement_Chase.pdf',
+            documentType: 'BANK_STATEMENT',
+            sourceInstitution: 'Chase',
+            namedParty: null,
+            instanceLabel: null,
+            pages: [1]
+        }], 10, 10000)).rejects.toThrow('BankStatement_Chase.pdf is too large');
     });
 });
 
@@ -58,8 +145,8 @@ describe('buildFileName', () => {
             .toBe('DriversLicense_Jane_Doe.pdf');
     });
 
-    it('omits party when blank', () => {
-        expect(buildFileName('OTHER', null, null, 2)).toBe('Other_2.pdf');
+    it('uses one catch-all file for OTHER', () => {
+        expect(buildFileName('OTHER', null, null, 2)).toBe('Other.pdf');
     });
 
     it('omits index when 1', () => {
@@ -97,24 +184,65 @@ describe('segmentsToSaveRequests', () => {
 
     it('preserves page ranges and types', () => {
         const segments = [
-            { documentType: 'DRIVERS_LICENSE', sourceInstitution: null, namedParty: 'John', startPage: 1, endPage: 1 }
+            { documentType: 'DRIVERS_LICENSE', sourceInstitution: null, namedParty: 'John', pages: [1, 4] }
         ];
         const reqs = segmentsToSaveRequests(segments);
         expect(reqs[0]).toMatchObject({
             documentType: 'DRIVERS_LICENSE',
             namedParty: 'John',
-            startPage: 1,
-            endPage: 1
+            pages: [1, 4]
         });
     });
 
     it('normalizes blank source/party to null', () => {
         const segments = [
-            { documentType: 'OTHER', sourceInstitution: '', namedParty: '', startPage: 1, endPage: 1 }
+            { documentType: 'OTHER', sourceInstitution: '', namedParty: '', pages: [1] }
         ];
         const reqs = segmentsToSaveRequests(segments);
         expect(reqs[0].sourceInstitution).toBeNull();
         expect(reqs[0].namedParty).toBeNull();
+    });
+
+    it('combines all OTHER pages into one catch-all request', () => {
+        const segments = [
+            { documentType: 'OTHER', sourceInstitution: null, namedParty: 'Noise', pages: [9, 1] },
+            { documentType: 'BANK_STATEMENT', sourceInstitution: 'Chase', namedParty: 'John', pages: [2, 3] },
+            { documentType: 'OTHER', sourceInstitution: 'Unknown', namedParty: null, pages: [4, 1] }
+        ];
+        const reqs = segmentsToSaveRequests(segments);
+        expect(reqs).toHaveLength(2);
+        expect(reqs[0].fileName).toBe('BankStatement_Chase_John.pdf');
+        expect(reqs[1]).toMatchObject({
+            fileName: 'Other.pdf',
+            documentType: 'OTHER',
+            sourceInstitution: null,
+            namedParty: null,
+            pages: [1, 4, 9]
+        });
+    });
+});
+
+describe('buildTypeBreakdownJson', () => {
+    it('builds sorted type counts', () => {
+        const json = buildTypeBreakdownJson([
+            { documentType: 'W2' },
+            { documentType: 'BANK_STATEMENT' },
+            { documentType: 'BANK_STATEMENT' },
+            { documentType: null }
+        ]);
+
+        expect(JSON.parse(json)).toEqual([
+            { type: 'BANK_STATEMENT', count: 2 },
+            { type: 'OTHER', count: 1 },
+            { type: 'W2', count: 1 }
+        ]);
+    });
+});
+
+describe('estimateJsonChars', () => {
+    it('returns the serialized JSON character count', () => {
+        const payload = [{ fileName: 'a.pdf', base64Content: 'YWJj' }];
+        expect(estimateJsonChars(payload)).toBe(JSON.stringify(payload).length);
     });
 });
 
@@ -177,9 +305,9 @@ describe('decodeJobEvent', () => {
         expect(JSON.parse(decoded.summaryJson)[0].type).toBe('BANK_STATEMENT');
     });
 
-    it('accepts events without a jobId filter', () => {
+    it('ignores events without a jobId filter', () => {
         const evt = buildEvent({ Job_Id__c: 'a01XXX', Status__c: 'Detecting' });
         const decoded = decodeJobEvent(evt, null);
-        expect(decoded.jobId).toBe('a01XXX');
+        expect(decoded).toBeNull();
     });
 });

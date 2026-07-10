@@ -3,8 +3,8 @@
  *
  * Responsibilities:
  *  - startJob: persist a new Split_Job__c record (Status=Queued) and return its Id.
- *  - enqueueChunkClassification: enqueue one ClassifyQueueable per chunk uploaded by the LWC.
- *  - recordChunkCompletion: called by each ClassifyQueueable when it finishes its chunk.
+ *  - enqueueChunkClassifications: start Batch Apex classification for uploaded chunks.
+ *  - recordChunkCompletion: called after each chunk is classified.
  *    Increments Chunks_Completed__c under a row lock; if this was the last chunk,
  *    transitions Status to Merging, runs SegmentMerger, persists the merged JSON,
  *    transitions to Splitting, and publishes a Split_Job_Update__e event so the LWC
@@ -13,8 +13,8 @@
  *    Status=Complete and publishes a final event.
  *  - failJob: called when any stage errors out; sets Status=Error and publishes an Error event.
  *
- * No prompt invocation lives here -- that happens inside ClassifyQueueable, which uses
- * the AIDocSplitClassifySpike subflow.
+ * No prompt invocation lives here -- that happens inside AIDocSplitClassifierService,
+ * which uses the AIDocSplitClassifySpike subflow.
  */
 public with sharing class SplitJobService {
 
@@ -84,31 +84,139 @@ public with sharing class SplitJobService {
     }
 
     /**
-     * Enqueue one ClassifyQueueable for a chunk that has been uploaded as a separate
-     * ContentDocument by the LWC. Called once per chunk.
+     * Start Batch Apex classification for one or many uploaded chunks.
      */
-    public static void enqueueChunkClassification(Id jobId, Integer chunkIndex, Id chunkContentDocumentId, Integer pageOffset) {
+    public static void enqueueChunkClassifications(Id jobId, List<PdfServiceChunkClassifyBatch.ChunkWork> chunks) {
         if (jobId == null) {
             throw new SplitJobException('jobId is required.');
         }
-        if (chunkIndex == null || chunkIndex < 0) {
-            throw new SplitJobException('chunkIndex must be >= 0.');
+        if (chunks == null || chunks.isEmpty()) {
+            throw new SplitJobException('chunks is required.');
         }
-        if (chunkContentDocumentId == null) {
-            throw new SplitJobException('chunkContentDocumentId is required.');
-        }
-        if (pageOffset == null || pageOffset < 1) {
-            throw new SplitJobException('pageOffset must be >= 1.');
+
+        List<PdfServiceChunkClassifyBatch.ChunkWork> work = new List<PdfServiceChunkClassifyBatch.ChunkWork>();
+        for (PdfServiceChunkClassifyBatch.ChunkWork chunk : chunks) {
+            work.add(validateChunkWork(chunk));
         }
 
         // Move status to Detecting on first enqueue. Idempotent set is fine.
         markStatusIfNotTerminal(jobId, 'Detecting');
 
-        System.enqueueJob(new ClassifyQueueable(jobId, chunkIndex, chunkContentDocumentId, pageOffset));
+        if (Test.isRunningTest()) {
+            new PdfServiceChunkClassifyBatch(jobId, work).execute(null, work);
+            return;
+        }
+        Database.executeBatch(new PdfServiceChunkClassifyBatch(jobId, work), 1);
     }
 
     /**
-     * Called by ClassifyQueueable.execute() after it has stored its chunk's raw segments.
+     * Link service-created temporary chunk files to the Split_Job__c so cleanup
+     * can delete the exact files for this job instead of relying on timestamps.
+     * Best-effort: a link failure must not block the splitter pipeline.
+     */
+    public static void linkTempChunkFiles(Id jobId, List<PdfServiceChunkClassifyBatch.ChunkWork> chunks) {
+        if (jobId == null || chunks == null || chunks.isEmpty()) {
+            return;
+        }
+        try {
+            Set<Id> contentDocumentIds = new Set<Id>();
+            for (PdfServiceChunkClassifyBatch.ChunkWork chunk : chunks) {
+                if (chunk != null && chunk.contentDocumentId != null) {
+                    contentDocumentIds.add(chunk.contentDocumentId);
+                }
+            }
+            if (contentDocumentIds.isEmpty()) {
+                return;
+            }
+
+            Set<Id> alreadyLinkedIds = new Set<Id>();
+            for (ContentDocumentLink existing : [
+                SELECT ContentDocumentId
+                FROM ContentDocumentLink
+                WHERE LinkedEntityId = :jobId
+                  AND ContentDocumentId IN :contentDocumentIds
+                WITH USER_MODE
+            ]) {
+                alreadyLinkedIds.add(existing.ContentDocumentId);
+            }
+
+            List<ContentDocumentLink> links = new List<ContentDocumentLink>();
+            for (Id contentDocumentId : contentDocumentIds) {
+                if (!alreadyLinkedIds.contains(contentDocumentId)) {
+                    links.add(new ContentDocumentLink(
+                        ContentDocumentId = contentDocumentId,
+                        LinkedEntityId = jobId,
+                        ShareType = 'V'
+                    ));
+                }
+            }
+            if (!links.isEmpty()) {
+                Database.insert(links, false, AccessLevel.USER_MODE);
+            }
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN, 'Temp chunk link skipped: ' + e.getMessage());
+        }
+    }
+
+    /**
+     * Marks the latest ContentVersion for final split output documents.
+     *
+     * @param contentDocumentIds ContentDocument ids returned by the split save path.
+     * @return Number of latest ContentVersion rows successfully updated.
+     */
+    public static Integer markContentDocumentsAiCreated(Set<Id> contentDocumentIds) {
+        if (contentDocumentIds == null || contentDocumentIds.isEmpty()) {
+            return 0;
+        }
+
+        List<ContentVersion> versionsToUpdate = new List<ContentVersion>();
+        for (ContentVersion version : [
+            SELECT Id, AI_Created_Doc__c
+            FROM ContentVersion
+            WHERE ContentDocumentId IN :contentDocumentIds
+              AND IsLatest = true
+            WITH USER_MODE
+        ]) {
+            if (version.AI_Created_Doc__c == true) {
+                continue;
+            }
+            versionsToUpdate.add(new ContentVersion(
+                Id = version.Id,
+                AI_Created_Doc__c = true
+            ));
+        }
+
+        if (versionsToUpdate.isEmpty()) {
+            return 0;
+        }
+
+        Integer successCount = 0;
+        for (Database.SaveResult result : Database.update(versionsToUpdate, false, AccessLevel.USER_MODE)) {
+            if (result.isSuccess()) {
+                successCount++;
+            }
+        }
+        return successCount;
+    }
+
+    private static PdfServiceChunkClassifyBatch.ChunkWork validateChunkWork(PdfServiceChunkClassifyBatch.ChunkWork chunk) {
+        if (chunk == null) {
+            throw new SplitJobException('chunk is required.');
+        }
+        if (chunk.chunkIndex == null || chunk.chunkIndex < 0) {
+            throw new SplitJobException('chunkIndex must be >= 0.');
+        }
+        if (chunk.contentDocumentId == null) {
+            throw new SplitJobException('chunkContentDocumentId is required.');
+        }
+        if (chunk.pageOffset == null || chunk.pageOffset < 1) {
+            throw new SplitJobException('pageOffset must be >= 1.');
+        }
+        return chunk;
+    }
+
+    /**
+     * Called by AIDocSplitClassifierService after it has stored its chunk's raw segments.
      * Increments the completion counter under a row lock. If this was the last chunk,
      * runs the merge and transitions the job into Splitting.
      */
@@ -166,6 +274,61 @@ public with sharing class SplitJobService {
     }
 
     /**
+     * Save one browser-produced batch of split PDFs. Unlike startSaving(), this
+     * does not carry the full file list in one Apex request or one Queueable
+     * state payload. The LWC calls it repeatedly with small payloads and marks
+     * only the final call as final.
+     *
+     * @param jobId Split job being saved.
+     * @param files Small batch of split files to insert.
+     * @param documentsSavedSoFar Number of files saved before this request.
+     * @param typeBreakdownJson Final type breakdown, supplied on the final call.
+     * @param isFinalBatch True when this is the last browser save request.
+     * @return Updated number of saved documents.
+     * @throws SplitJobException when required input is missing or invalid.
+     */
+    public static Integer saveBrowserBatch(
+        Id jobId,
+        List<SplitSaveRequest> files,
+        Integer documentsSavedSoFar,
+        String typeBreakdownJson,
+        Boolean isFinalBatch
+    ) {
+        if (jobId == null) {
+            throw new SplitJobException('jobId is required.');
+        }
+        if (files == null) {
+            throw new SplitJobException('files is required (use empty list, not null).');
+        }
+        Integer priorSaved = documentsSavedSoFar == null ? 0 : documentsSavedSoFar;
+        if (priorSaved < 0) {
+            throw new SplitJobException('documentsSavedSoFar must be >= 0.');
+        }
+
+        if (priorSaved == 0) {
+            markSaving(jobId);
+        }
+
+        if (!files.isEmpty()) {
+            Split_Job__c jobCtx = SplitSaveQueueable.lookupJobSaveContext(jobId);
+            SplitSaveQueueable.saveBatch(
+                files,
+                (Id) jobCtx.Library_Id__c,
+                jobId,
+                String.isBlank(jobCtx.Target_Folder_Id__c) ? null : (Id) jobCtx.Target_Folder_Id__c
+            );
+        }
+
+        Integer savedTotal = priorSaved + files.size();
+        if (isFinalBatch == true) {
+            finalizeJob(jobId, savedTotal, String.isBlank(typeBreakdownJson) ? '[]' : typeBreakdownJson);
+        } else {
+            recordSaveProgress(jobId, savedTotal, null);
+        }
+        return savedTotal;
+    }
+
+    /**
      * Transition the job to Saving. Idempotent -- called by the first
      * SplitSaveQueueable batch but safe to call repeatedly.
      */
@@ -194,10 +357,9 @@ public with sharing class SplitJobService {
     }
 
     /**
-     * Called by the LWC after it has split the bundle and SplitSaveQueueable has
-     * saved all child files. Transitions the job to Complete and deletes the
-     * temp chunk PDFs the LWC uploaded during preparation — they are no longer
-     * needed once everything is saved successfully.
+     * Called after all child files are saved. Transitions the job to Complete
+     * and deletes temporary chunk PDFs created during preparation — they are no
+     * longer needed once everything is saved successfully.
      */
     public static void finalizeJob(Id jobId, Integer documentsCreated, String typeBreakdownJson) {
         if (jobId == null) {
@@ -214,6 +376,7 @@ public with sharing class SplitJobService {
 
         cleanupTempChunkFiles(jobId);
         deleteSourceIfReplacedByOneFile(jobId);
+        AIDocIntakeService.markSplitComplete(jobId);
 
         publishUpdate(jobId, 'Complete', typeBreakdownJson, 'Split complete.',
             documentsCreated == null ? 0 : documentsCreated);
@@ -233,11 +396,11 @@ public with sharing class SplitJobService {
         try {
             Split_Job__c job = [SELECT Source_ContentDocument_Id__c, Total_Pages__c,
                                        Documents_Created__c, Merged_Segments_JSON__c
-                                FROM Split_Job__c WHERE Id = :jobId LIMIT 1];
+                                FROM Split_Job__c WHERE Id = :jobId WITH USER_MODE LIMIT 1];
             if (!shouldReplaceSource(job)) {
                 return;
             }
-            Database.delete(new ContentDocument(Id = (Id) job.Source_ContentDocument_Id__c), false);
+            Database.delete(new ContentDocument(Id = (Id) job.Source_ContentDocument_Id__c), false, AccessLevel.USER_MODE);
         } catch (Exception e) {
             System.debug(LoggingLevel.WARN, 'Source replacement skipped: ' + e.getMessage());
         }
@@ -299,6 +462,8 @@ public with sharing class SplitJobService {
             Error_Detail__c = detail
         );
         Database.update(job, AccessLevel.USER_MODE);
+        AIDocIntakeService.markSplitFailed(jobId, detail);
+        cleanupTempChunkFiles(jobId);
 
         publishUpdate(jobId, 'Error', null, detail.left(255));
     }
@@ -356,9 +521,9 @@ public with sharing class SplitJobService {
     }
 
     /**
-     * Delete the temp chunk PDFs the LWC uploaded for this job. They're named
-     * `bundle_chunk_*.pdf` and aren't needed after classification finishes.
-     * Failures here are logged but never propagated — cleanup is best-effort.
+     * Delete temp chunk PDFs for this job. They're named `bundle_chunk_*.pdf`
+     * and aren't needed after classification/splitting finishes. Failures here
+     * are logged but never propagated — cleanup is best-effort.
      */
     @TestVisible
     private static void cleanupTempChunkFiles(Id jobId) {
@@ -366,34 +531,76 @@ public with sharing class SplitJobService {
             return;
         }
         try {
-            // The LWC uploaded chunks to the library between the source download
-            // and the startJob call, so they're titled bundle_chunk_N and exist
-            // as ContentDocuments in the same library. Find them by title pattern.
-            Split_Job__c job = [SELECT Library_Id__c, CreatedDate FROM Split_Job__c WHERE Id = :jobId LIMIT 1];
-            Id libraryId = (Id) job.Library_Id__c;
-            Datetime jobStart = job.CreatedDate;
-            // 5-minute window before the job for the temp-chunk uploads.
-            Datetime windowStart = jobStart.addMinutes(-5);
-
-            List<ContentWorkspaceDoc> memberships = [SELECT ContentDocumentId
-                                                     FROM ContentWorkspaceDoc
-                                                     WHERE ContentWorkspaceId = :libraryId];
-            Set<Id> libraryDocIds = new Set<Id>();
-            for (ContentWorkspaceDoc m : memberships) {
-                libraryDocIds.add(m.ContentDocumentId);
+            Split_Job__c job = [SELECT Library_Id__c, CreatedDate, LastModifiedDate
+                                 FROM Split_Job__c
+                                 WHERE Id = :jobId
+                                 WITH USER_MODE
+                                 LIMIT 1];
+            Set<Id> chunkDocIds = findLinkedTempChunkDocumentIds(jobId);
+            if (chunkDocIds.isEmpty()) {
+                chunkDocIds.addAll(findLibraryTempChunkDocumentIds(job));
             }
-            List<ContentDocument> chunkDocs = [SELECT Id FROM ContentDocument
-                                               WHERE Id IN :libraryDocIds
-                                                 AND Title LIKE 'bundle_chunk_%'
-                                                 AND CreatedDate >= :windowStart
-                                                 AND CreatedDate <= :jobStart];
-            if (!chunkDocs.isEmpty()) {
-                Database.delete(chunkDocs, false);
+            if (!chunkDocIds.isEmpty()) {
+                List<ContentDocument> docsToDelete = [
+                    SELECT Id
+                    FROM ContentDocument
+                    WHERE Id IN :chunkDocIds
+                    WITH USER_MODE
+                ];
+                Database.delete(docsToDelete, false, AccessLevel.USER_MODE);
             }
         } catch (Exception e) {
             // best-effort — don't kill the job over cleanup failure
             System.debug(LoggingLevel.WARN, 'Temp chunk cleanup failed: ' + e.getMessage());
         }
+    }
+
+    private static Set<Id> findLinkedTempChunkDocumentIds(Id jobId) {
+        Set<Id> chunkDocIds = new Set<Id>();
+        for (ContentDocumentLink link : [
+            SELECT ContentDocumentId
+            FROM ContentDocumentLink
+            WHERE LinkedEntityId = :jobId
+              AND ContentDocument.Title LIKE 'bundle_chunk_%'
+            WITH USER_MODE
+        ]) {
+            chunkDocIds.add(link.ContentDocumentId);
+        }
+        return chunkDocIds;
+    }
+
+    private static Set<Id> findLibraryTempChunkDocumentIds(Split_Job__c job) {
+        Set<Id> chunkDocIds = new Set<Id>();
+        if (job == null || String.isBlank(job.Library_Id__c)) {
+            return chunkDocIds;
+        }
+        Id libraryId = (Id) job.Library_Id__c;
+        Datetime jobStart = job.CreatedDate;
+        Datetime windowEnd = job.LastModifiedDate == null ? System.now() : job.LastModifiedDate.addMinutes(1);
+        // Browser chunks are uploaded just before the job starts; service chunks
+        // are uploaded just after. Keep this as a fallback for older/unlinked
+        // chunks, while linked chunks above are the primary cleanup path.
+        Datetime windowStart = jobStart.addMinutes(-5);
+
+        List<ContentWorkspaceDoc> memberships = [SELECT ContentDocumentId
+                                                 FROM ContentWorkspaceDoc
+                                                 WHERE ContentWorkspaceId = :libraryId
+                                                 WITH USER_MODE];
+        Set<Id> libraryDocIds = new Set<Id>();
+        for (ContentWorkspaceDoc m : memberships) {
+            libraryDocIds.add(m.ContentDocumentId);
+        }
+        List<ContentDocument> chunkDocs = [SELECT Id
+                                           FROM ContentDocument
+                                           WHERE Id IN :libraryDocIds
+                                             AND Title LIKE 'bundle_chunk_%'
+                                             AND CreatedDate >= :windowStart
+                                             AND CreatedDate <= :windowEnd
+                                           WITH USER_MODE];
+        for (ContentDocument doc : chunkDocs) {
+            chunkDocIds.add(doc.Id);
+        }
+        return chunkDocIds;
     }
 
     /**

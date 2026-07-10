@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Mapping_Confidence__c</fullName>
+    <description>Confidence score assigned when mapping a split file to a document category.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Stores the deterministic or AI-assisted category mapping confidence as a percentage.</inlineHelpText>
+    <label>Mapping Confidence</label>
+    <precision>5</precision>
+    <required>false</required>
+    <scale>2</scale>
+    <type>Percent</type>
+    <unique>false</unique>
+</CustomField>

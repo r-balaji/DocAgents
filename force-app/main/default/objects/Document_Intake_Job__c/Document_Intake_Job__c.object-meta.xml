@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <deploymentStatus>Deployed</deploymentStatus>
+    <description>Submission-level audit record for portal document intake requests. Tracks idempotency, status, and the uploaded Salesforce Files accepted for async document splitting and review.</description>
+    <enableHistory>true</enableHistory>
+    <enableReports>true</enableReports>
+    <label>Document Intake Job</label>
+    <nameField>
+        <displayFormat>DIJ-{00000000}</displayFormat>
+        <label>Document Intake Job Name</label>
+        <startingNumber>1</startingNumber>
+        <type>AutoNumber</type>
+    </nameField>
+    <pluralLabel>Document Intake Jobs</pluralLabel>
+    <sharingModel>ReadWrite</sharingModel>
+    <visibility>Public</visibility>
+</CustomObject>

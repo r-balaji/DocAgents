@@ -30,13 +30,13 @@ public class SplitSaveRequest {
      *    officer can tell whose document it is.
      *      BankStatement_Bank_of_America_John_Smith.pdf
      *      DriversLicense_Jane_Doe.pdf
-     *  - OTHER (fallback): strip party/source, use clean Other_N numbering.
+     *  - OTHER (fallback): strip party/source, use one catch-all output.
      *    The AI's party extraction on unrecognized pages is unreliable noise.
-     *      Other_1.pdf, Other_2.pdf, ...
+     *      Other.pdf
      */
     public static String buildFileName(String documentType, String sourceInstitution, String namedParty, Integer index) {
         if ('OTHER'.equals(documentType)) {
-            return 'Other_' + (index == null ? 1 : index) + '.pdf';
+            return 'Other.pdf';
         }
         List<String> parts = new List<String>{ toTitleCase(documentType) };
         if (String.isNotBlank(sourceInstitution)) {

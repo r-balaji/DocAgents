@@ -18,8 +18,8 @@
         </targetConfig>
         <targetConfig targets="lightning__RecordPage,lightning__AppPage">
             <property name="libraryId" type="String" label="Library Id (optional)" description="ContentWorkspace Id where split files will be saved. Leave blank to auto-detect from the source file's library."/>
-            <property name="chunkSize" type="Integer" label="Chunk Size" description="Pages per AI classification chunk." default="8"/>
-            <property name="chunkOverlap" type="Integer" label="Chunk Overlap" description="Pages each chunk re-includes from the previous chunk (heals seam-straddling docs)." default="2"/>
+            <property name="chunkSize" type="Integer" label="Deprecated Page Chunk Size" description="Deprecated no-op retained for existing Lightning pages. Current splitter chunks by byte size only." default="8"/>
+            <property name="chunkOverlap" type="Integer" label="Legacy Chunk Overlap" description="Legacy page overlap setting. Current size-based splitter always uses zero overlap." default="0"/>
         </targetConfig>
     </targetConfigs>
 </LightningComponentBundle>

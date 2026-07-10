@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Auto_Review_Fallback_Category__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Controls whether automated document intake sends files in the configured fallback category to AI review.</description>
+    <externalId>false</externalId>
+    <fieldManageability>SubscriberControlled</fieldManageability>
+    <inlineHelpText>Check this to include files in the configured fallback category during automatic AI review. Users can still include them manually from the review button.</inlineHelpText>
+    <label>Auto Review Fallback Category</label>
+    <type>Checkbox</type>
+</CustomField>

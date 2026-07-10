@@ -8,28 +8,133 @@
  */
 
 /**
- * Compute overlapping chunks for a given page count.
+ * Download a ContentVersion directly through Salesforce's file servlet.
+ *
+ * This avoids routing large PDF bytes through an @AuraEnabled Apex return
+ * value, where base64 expansion plus the Aura envelope can fail before useful
+ * server logs are produced.
  */
-export function computeChunks(totalPages, chunkSize = 8, overlap = 2) {
-    if (!Number.isInteger(totalPages) || totalPages < 1) {
+export async function fetchContentVersionBytes(contentVersionId) {
+    if (!contentVersionId) {
+        throw new Error('contentVersionId is required.');
+    }
+    const response = await fetch(`/sfc/servlet.shepherd/version/download/${encodeURIComponent(contentVersionId)}`, {
+        credentials: 'same-origin'
+    });
+    if (!response.ok) {
+        throw new Error(`File download failed (${response.status}).`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
+}
+
+/**
+ * Build chunks by saved PDF byte size instead of a fixed page count.
+ *
+ * The returned `bytes` are ready to upload as each temporary bundle_chunk_N.pdf.
+ * If one source page alone exceeds maxBytes, that page is still emitted as a
+ * single-page chunk so the pipeline can continue and surface the provider error.
+ */
+export async function buildPdfChunksBySize(PDFDocument, sourceDoc, maxBytes, overlap = 0) {
+    const totalPages = sourceDoc && typeof sourceDoc.getPageCount === 'function'
+        ? sourceDoc.getPageCount()
+        : 0;
+    if (!PDFDocument || !sourceDoc || !Number.isInteger(totalPages) || totalPages < 1) {
         return [];
     }
-    if (chunkSize < 1) chunkSize = 1;
-    if (overlap < 0) overlap = 0;
-    if (overlap >= chunkSize) overlap = chunkSize - 1;
 
-    const stride = chunkSize - overlap;
-    const chunks = [];
-    let chunkIndex = 0;
-    let startPage = 1;
-    while (startPage <= totalPages) {
-        const endPage = Math.min(startPage + chunkSize - 1, totalPages);
-        chunks.push({ chunkIndex, startPage, endPage });
-        if (endPage >= totalPages) break;
-        startPage += stride;
-        chunkIndex += 1;
+    const targetBytes = Number.isFinite(maxBytes) && maxBytes > 0
+        ? maxBytes
+        : Number.MAX_SAFE_INTEGER;
+    const requestedOverlap = Number.isInteger(overlap) && overlap > 0 ? overlap : 0;
+    return buildChunksRecursive(PDFDocument, sourceDoc, totalPages, targetBytes, requestedOverlap, 1, 0, []);
+}
+
+async function buildChunksRecursive(PDFDocument, sourceDoc, totalPages, targetBytes, overlap, startPage, chunkIndex, chunks) {
+    if (startPage > totalPages) {
+        return chunks;
     }
-    return chunks;
+
+    const best = await findLargestChunkWithinTarget(
+        PDFDocument,
+        sourceDoc,
+        totalPages,
+        targetBytes,
+        startPage,
+        startPage,
+        startPage,
+        null
+    );
+
+    chunks.push({
+        chunkIndex,
+        startPage,
+        endPage: best.endPage,
+        bytes: best.bytes
+    });
+
+    if (best.endPage >= totalPages) {
+        return chunks;
+    }
+
+    const pagesInChunk = best.endPage - startPage + 1;
+    const safeOverlap = Math.min(overlap, Math.max(0, pagesInChunk - 1));
+    return buildChunksRecursive(
+        PDFDocument,
+        sourceDoc,
+        totalPages,
+        targetBytes,
+        overlap,
+        best.endPage - safeOverlap + 1,
+        chunkIndex + 1,
+        chunks
+    );
+}
+
+async function findLargestChunkWithinTarget(
+    PDFDocument,
+    sourceDoc,
+    totalPages,
+    targetBytes,
+    startPage,
+    endPage,
+    bestEndPage,
+    bestBytes
+) {
+    if (endPage > totalPages) {
+        return { endPage: bestEndPage, bytes: bestBytes };
+    }
+
+    const candidateBytes = await copyPageRangeAsBytes(PDFDocument, sourceDoc, startPage, endPage);
+    const candidateTooLarge = candidateBytes.length > targetBytes;
+    if (candidateTooLarge && endPage > startPage) {
+        return { endPage: bestEndPage, bytes: bestBytes };
+    }
+
+    if (candidateTooLarge) {
+        return { endPage, bytes: candidateBytes };
+    }
+
+    return findLargestChunkWithinTarget(
+        PDFDocument,
+        sourceDoc,
+        totalPages,
+        targetBytes,
+        startPage,
+        endPage + 1,
+        endPage,
+        candidateBytes
+    );
+}
+
+async function copyPageRangeAsBytes(PDFDocument, sourceDoc, startPage, endPage) {
+    const subDoc = await PDFDocument.create();
+    const pageIndices = [];
+    for (let p = startPage - 1; p <= endPage - 1; p += 1) {
+        pageIndices.push(p);
+    }
+    const copied = await subDoc.copyPages(sourceDoc, pageIndices);
+    copied.forEach((page) => subDoc.addPage(page));
+    return subDoc.save();
 }
 
 /**
@@ -39,14 +144,14 @@ export function computeChunks(totalPages, chunkSize = 8, overlap = 2) {
  *  - Known types (BANK_STATEMENT, DRIVERS_LICENSE, ...) — include the source
  *    institution and named party so the loan officer can identify whose doc this is.
  *    e.g. BankStatement_Chase_John_Smith.pdf, BankStatement_Chase_John_Smith_2.pdf
- *  - OTHER (fallback) — strip the party/source entirely and use a clean sequential
- *    suffix. The AI's party extraction on unrecognized pages is unreliable, so the
+ *  - OTHER (fallback) — strip the party/source entirely and use one catch-all
+ *    output. The AI's party extraction on unrecognized pages is unreliable, so the
  *    extracted name is more noise than signal.
- *    e.g. Other_1.pdf, Other_2.pdf
+ *    e.g. Other.pdf
  */
 export function buildFileName(documentType, sourceInstitution, namedParty, index) {
     if (documentType === 'OTHER') {
-        return `Other_${index || 1}.pdf`;
+        return 'Other.pdf';
     }
     const parts = [toTitleCase(documentType)];
     if (sourceInstitution && sourceInstitution.trim()) {
@@ -62,32 +167,196 @@ export function buildFileName(documentType, sourceInstitution, namedParty, index
 }
 
 /**
- * Re-key the merged segments into save requests, assigning per-(type,party,source)
- * index so multiple files of the same kind don't collide.
+ * Re-key the merged segments into save requests. Known types get a
+ * per-(type,party,source) index so multiple files of the same kind don't collide.
+ * OTHER pages are bundled into one catch-all output because they are not useful
+ * as separate split documents.
  */
 export function segmentsToSaveRequests(segments) {
     const counts = new Map();
     const requests = [];
-    for (const seg of segments) {
-        // OTHER segments share one counter regardless of party/source — every
-        // unrecognized page gets the next Other_N number. For known types we
-        // group by (type, source, party) so two Chase statements for John get
-        // _1 and _2 while a Wells Fargo statement for John starts fresh at _1.
-        const key = seg.documentType === 'OTHER'
-            ? 'OTHER'
-            : [seg.documentType, seg.sourceInstitution || '', seg.namedParty || ''].join('|');
+    const otherPages = [];
+
+    for (const seg of segments || []) {
+        if (!seg) {
+            continue;
+        }
+        const type = seg.documentType || 'OTHER';
+        const pages = Array.isArray(seg.pages) ? [...seg.pages] : [];
+        if (type === 'OTHER') {
+            otherPages.push(...pages);
+            continue;
+        }
+
+        // For known types we group by (type, source, party) so two Chase
+        // statements for John get _1 and _2 while a Wells Fargo statement for
+        // John starts fresh at _1.
+        const key = [type, seg.sourceInstitution || '', seg.namedParty || ''].join('|');
         const nextIndex = (counts.get(key) || 0) + 1;
         counts.set(key, nextIndex);
         requests.push({
-            fileName: buildFileName(seg.documentType, seg.sourceInstitution, seg.namedParty, nextIndex),
-            documentType: seg.documentType,
+            fileName: buildFileName(type, seg.sourceInstitution, seg.namedParty, nextIndex),
+            documentType: type,
             sourceInstitution: seg.sourceInstitution || null,
             namedParty: seg.namedParty || null,
             instanceLabel: seg.instanceLabel || null,
-            pages: Array.isArray(seg.pages) ? [...seg.pages] : []
+            pages
         });
     }
+
+    const normalizedOtherPages = uniqueSortedPositiveIntegers(otherPages);
+    if (normalizedOtherPages.length > 0) {
+        requests.push({
+            fileName: buildFileName('OTHER', null, null, 1),
+            documentType: 'OTHER',
+            sourceInstitution: null,
+            namedParty: null,
+            instanceLabel: null,
+            pages: normalizedOtherPages
+        });
+    }
+
     return requests;
+}
+
+/**
+ * Build the final Split_Job__c.Type_Breakdown_JSON__c payload from save
+ * requests without needing Apex to keep cross-request browser state.
+ */
+export function buildTypeBreakdownJson(requests) {
+    const counts = new Map();
+    for (const req of requests || []) {
+        const key = req && req.documentType ? req.documentType : 'OTHER';
+        counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return JSON.stringify(Array.from(counts.keys()).sort().map((type) => ({
+        type,
+        count: counts.get(type)
+    })));
+}
+
+/**
+ * Build browser-save payloads from logical split requests.
+ *
+ * Known document types must fit as a single output. For OTHER, the UI splits
+ * a too-large catch-all into Other_1.pdf, Other_2.pdf, etc. using a raw PDF
+ * byte cap before base64 encoding. Headless/service paths do not use this
+ * helper, so their grouped OTHER output stays unchanged.
+ */
+export async function buildBrowserSaveRequests(PDFDocument, sourceDoc, requests, maxRawBytes, maxJsonChars) {
+    const outputRequests = [];
+    for (const req of requests || []) {
+        if (!req) {
+            continue;
+        }
+
+        const output = await buildOutputCandidate(PDFDocument, sourceDoc, req, req.pages, req.fileName);
+        if (fitsBrowserSave(output, maxRawBytes, maxJsonChars)) {
+            outputRequests.push(output.request);
+            continue;
+        }
+
+        if (req.documentType === 'OTHER') {
+            const splitOtherRequests = await splitOtherRequestForBrowserSave(
+                PDFDocument,
+                sourceDoc,
+                req,
+                maxRawBytes,
+                maxJsonChars
+            );
+            outputRequests.push(...splitOtherRequests);
+            continue;
+        }
+
+        throw new Error(`Split output ${output.request.fileName} is too large for browser save. Use Web/headless mode for this file.`);
+    }
+    return outputRequests;
+}
+
+async function splitOtherRequestForBrowserSave(PDFDocument, sourceDoc, req, maxRawBytes, maxJsonChars) {
+    const pages = Array.isArray(req.pages) ? req.pages : [];
+    const outputRequests = [];
+    let currentPages = [];
+    let currentOutput = null;
+
+    for (const page of pages) {
+        const candidatePages = [...currentPages, page];
+        const candidateFileName = `Other_${outputRequests.length + 1}.pdf`;
+        const candidateOutput = await buildOutputCandidate(
+            PDFDocument,
+            sourceDoc,
+            req,
+            candidatePages,
+            candidateFileName
+        );
+
+        if (fitsBrowserSave(candidateOutput, maxRawBytes, maxJsonChars)) {
+            currentPages = candidatePages;
+            currentOutput = candidateOutput;
+            continue;
+        }
+
+        if (currentPages.length === 0) {
+            throw new Error(`Split output ${candidateFileName} is too large for browser save. Use Web/headless mode for this file.`);
+        }
+
+        outputRequests.push(currentOutput.request);
+        currentPages = [page];
+        currentOutput = await buildOutputCandidate(
+            PDFDocument,
+            sourceDoc,
+            req,
+            currentPages,
+            `Other_${outputRequests.length + 1}.pdf`
+        );
+
+        if (!fitsBrowserSave(currentOutput, maxRawBytes, maxJsonChars)) {
+            throw new Error(`Split output ${currentOutput.request.fileName} is too large for browser save. Use Web/headless mode for this file.`);
+        }
+    }
+
+    if (currentOutput) {
+        outputRequests.push(currentOutput.request);
+    }
+    return outputRequests;
+}
+
+async function buildOutputCandidate(PDFDocument, sourceDoc, req, pages, fileName) {
+    const subDoc = await PDFDocument.create();
+    const pageIndices = (Array.isArray(pages) ? pages : []).map((p) => p - 1);
+    const copied = await subDoc.copyPages(sourceDoc, pageIndices);
+    copied.forEach((page) => subDoc.addPage(page));
+    const bytes = await subDoc.save();
+    return {
+        byteLength: bytes.length,
+        request: {
+            ...req,
+            fileName,
+            pages: Array.isArray(pages) ? [...pages] : [],
+            base64Content: uint8ToBase64(bytes)
+        }
+    };
+}
+
+function fitsBrowserSave(output, maxRawBytes, maxJsonChars) {
+    if (!output || !output.request) {
+        return false;
+    }
+    const rawLimit = Number.isFinite(maxRawBytes) && maxRawBytes > 0
+        ? maxRawBytes
+        : Number.MAX_SAFE_INTEGER;
+    const jsonLimit = Number.isFinite(maxJsonChars) && maxJsonChars > 0
+        ? maxJsonChars
+        : Number.MAX_SAFE_INTEGER;
+    return output.byteLength <= rawLimit && estimateJsonChars([output.request]) <= jsonLimit;
+}
+
+/**
+ * Estimate the serialized request size sent over an imperative Apex action.
+ * String length is the useful guard here because the heavy field is base64.
+ */
+export function estimateJsonChars(value) {
+    return JSON.stringify(value || null).length;
 }
 
 /**
@@ -95,9 +364,9 @@ export function segmentsToSaveRequests(segments) {
  */
 export function uint8ToBase64(bytes) {
     let binary = '';
-    const chunkSize = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-        const slice = bytes.subarray(i, i + chunkSize);
+    const sliceSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += sliceSize) {
+        const slice = bytes.subarray(i, i + sliceSize);
         binary += String.fromCharCode.apply(null, slice);
     }
     return btoa(binary);
@@ -152,4 +421,10 @@ function toTitleCase(typeCode) {
 function sanitize(s) {
     if (!s) return '';
     return s.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function uniqueSortedPositiveIntegers(values) {
+    return Array.from(new Set((values || [])
+        .filter((value) => Number.isInteger(value) && value > 0)))
+        .sort((a, b) => a - b);
 }

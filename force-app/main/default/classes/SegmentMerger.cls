@@ -33,7 +33,7 @@ public class SegmentMerger {
      *                    include duplicates or out-of-bounds values).
      * @param totalPages  total page count of the source bundle (1-indexed). Null
      *                    or non-positive returns an empty list.
-     * @param fallbackType Type_Code__c of the fallback Document_Type__mdt (OTHER).
+     * @param fallbackType Fallback document type code (OTHER).
      * @return list of segments whose page lists collectively cover every page in
      *         [1..totalPages] exactly once.
      */

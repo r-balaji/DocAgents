@@ -1,4 +1,11 @@
 <template>
+    <lightning-input
+        type="checkbox"
+        label="Include Other documents"
+        checked={includeFallbackCategory}
+        disabled={isBusy}
+        onchange={handleIncludeFallbackChange}>
+    </lightning-input>
     <lightning-button-group>
         <lightning-button
             label={reviewButtonLabel}

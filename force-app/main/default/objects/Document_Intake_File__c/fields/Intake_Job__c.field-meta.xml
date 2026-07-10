@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Intake_Job__c</fullName>
+    <description>Parent document intake submission that owns this file work item.</description>
+    <inlineHelpText>Parent intake job for this uploaded file.</inlineHelpText>
+    <label>Intake Job</label>
+    <referenceTo>Document_Intake_Job__c</referenceTo>
+    <relationshipLabel>Document Intake Files</relationshipLabel>
+    <relationshipName>Document_Intake_Files</relationshipName>
+    <relationshipOrder>0</relationshipOrder>
+    <reparentableMasterDetail>false</reparentableMasterDetail>
+    <type>MasterDetail</type>
+    <writeRequiresMasterRead>false</writeRequiresMasterRead>
+</CustomField>

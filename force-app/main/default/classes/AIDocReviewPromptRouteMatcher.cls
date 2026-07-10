@@ -1,34 +1,7 @@
 /**
- * Matches document category labels to AI Document Review prompt route buckets.
+ * Matches document category labels to AI Document Review prompt families.
  */
 public inherited sharing class AIDocReviewPromptRouteMatcher {
-    /**
-     * Finds the best matching active document type metadata row for a category label.
-     * @param categoryName Document category label supplied by the review flow.
-     * @param documentTypes Active Document_Type__mdt rows.
-     * @return Best matching metadata row, or null when none matches.
-     */
-    public static Document_Type__mdt findMatchingDocumentType(
-        String categoryName,
-        List<Document_Type__mdt> documentTypes
-    ) {
-        if (String.isBlank(categoryName) || documentTypes == null || documentTypes.isEmpty()) {
-            return null;
-        }
-
-        String normalizedCategory = normalize(categoryName);
-        Document_Type__mdt bestMatch;
-        Integer bestScore = 0;
-        for (Document_Type__mdt documentType : documentTypes) {
-            Integer score = matchScore(normalizedCategory, documentType);
-            if (score > bestScore) {
-                bestScore = score;
-                bestMatch = documentType;
-            }
-        }
-        return bestMatch;
-    }
-
     /**
      * Infers a prompt route directly from category keywords when metadata does not route it.
      * @param categoryName Document category label supplied by the review flow.
@@ -42,65 +15,6 @@ public inherited sharing class AIDocReviewPromptRouteMatcher {
             }
         }
         return AIDocReviewPromptRouter.ROUTE_GENERIC;
-    }
-
-    private static Integer matchScore(String normalizedCategory, Document_Type__mdt documentType) {
-        Integer score = 0;
-        score = Math.max(score, tokenMatchScore(normalizedCategory, normalize(documentType.Label), 100));
-        score = Math.max(score, tokenMatchScore(normalizedCategory, normalize(documentType.Type_Code__c), 90));
-        score = Math.max(score, tokenMatchScore(normalizedCategory, normalizeDeveloperName(documentType.DeveloperName), 80));
-        return score;
-    }
-
-    private static Integer tokenMatchScore(String normalizedCategory, String normalizedCandidate, Integer baseScore) {
-        if (String.isBlank(normalizedCandidate)) {
-            return 0;
-        }
-        Integer directScore = directCandidateScore(normalizedCategory, normalizedCandidate, baseScore);
-        if (directScore > 0) {
-            return directScore;
-        }
-        return tokenCoverageScore(normalizedCategory, normalizedCandidate, baseScore);
-    }
-
-    private static Integer directCandidateScore(
-        String normalizedCategory,
-        String normalizedCandidate,
-        Integer baseScore
-    ) {
-        if (normalizedCategory == normalizedCandidate) {
-            return baseScore + 20;
-        }
-        if (normalizedCategory.contains(normalizedCandidate) || normalizedCandidate.contains(normalizedCategory)) {
-            return baseScore;
-        }
-        return 0;
-    }
-
-    private static Integer tokenCoverageScore(
-        String normalizedCategory,
-        String normalizedCandidate,
-        Integer baseScore
-    ) {
-        List<String> candidateTokens = normalizedCandidate.split(' ');
-        Integer matchedTokens = 0;
-        Integer meaningfulTokens = 0;
-        for (String token : candidateTokens) {
-            if (isMeaningfulToken(token)) {
-                meaningfulTokens++;
-                if (normalizedCategory.contains(token)) {
-                    matchedTokens++;
-                }
-            }
-        }
-        if (meaningfulTokens > 0 && matchedTokens == meaningfulTokens) {
-            return baseScore - 10;
-        }
-        return 0;
-    }
-
-    private static Boolean isMeaningfulToken(String token) {
-        return String.isNotBlank(token) && token.length() >= 3;
     }
 
     private static List<RouteKeywordSet> routeKeywordSets() {
@@ -168,10 +82,6 @@ public inherited sharing class AIDocReviewPromptRouteMatcher {
             }
         }
         return false;
-    }
-
-    private static String normalizeDeveloperName(String developerName) {
-        return String.isBlank(developerName) ? '' : normalize(developerName.replace('_', ' '));
     }
 
     private static String normalize(String value) {

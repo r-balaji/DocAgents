@@ -11,15 +11,20 @@ import getLibraryIdForFile from '@salesforce/apex/SplitJobController.getLibraryI
 import getFolderIdForFile from '@salesforce/apex/SplitJobController.getFolderIdForFile';
 import uploadChunkPdf from '@salesforce/apex/SplitJobController.uploadChunkPdf';
 import startJob from '@salesforce/apex/SplitJobController.startJob';
-import enqueueChunkClassification from '@salesforce/apex/SplitJobController.enqueueChunkClassification';
-import startSaving from '@salesforce/apex/SplitJobController.startSaving';
+import enqueueChunkClassifications from '@salesforce/apex/SplitJobController.enqueueChunkClassifications';
+import saveSplitBatch from '@salesforce/apex/SplitJobController.saveSplitBatch';
 import startHeadlessSplit from '@salesforce/apex/SplitJobController.startHeadlessSplit';
 import searchFiles from '@salesforce/apex/SplitJobController.searchFiles';
 import getJobOutputFiles from '@salesforce/apex/SplitJobController.getJobOutputFiles';
 import deleteFiles from '@salesforce/apex/SplitJobController.deleteFiles';
+import markJobFailed from '@salesforce/apex/SplitJobController.markJobFailed';
 
 import {
-    computeChunks,
+    buildPdfChunksBySize,
+    buildBrowserSaveRequests,
+    buildTypeBreakdownJson,
+    estimateJsonChars,
+    fetchContentVersionBytes,
     segmentsToSaveRequests,
     uint8ToBase64,
     base64ToUint8,
@@ -28,14 +33,17 @@ import {
 
 const EVENT_CHANNEL = '/event/Split_Job_Update__e';
 
-// Salesforce Prompt Builder caps total file input at 15 MB regardless of the
-// underlying model. Bundles at or below this threshold (with buffer for the
-// prompt envelope) go through a single LLM call instead of the chunking path.
-const SINGLE_CALL_THRESHOLD_BYTES = 12 * 1024 * 1024;
+// UI mode moves PDF bytes through Apex/LWC/browser memory. The source document
+// can use a larger direct classification call, but browser-created temporary
+// PDFs are uploaded through Aura/Apex as base64 and need a smaller cap.
+const SINGLE_CALL_THRESHOLD_BYTES = 7.5 * 1024 * 1024;
+const BROWSER_CHUNK_TARGET_BYTES = 2 * 1024 * 1024;
+const BROWSER_OTHER_OUTPUT_TARGET_BYTES = 2 * 1024 * 1024;
+const MAX_SAVE_APEX_PAYLOAD_CHARS = 3 * 1024 * 1024;
 
 export default class AiDocumentSplitterStudio extends NavigationMixin(LightningElement) {
-    @api chunkSize = 8;
-    @api chunkOverlap = 2;
+    @api chunkSize = 8;                         // deprecated App Builder property; ignored by size-based chunking
+    @api chunkOverlap = 0;                       // legacy App Builder property; overlap is disabled
 
     @track searchTerm = '';
     @track searchResults = [];
@@ -66,6 +74,7 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
     jobId;
     sourcePdfBytes;
     resolvedLibraryId;
+    resolvedFolderId;
     totalChunksForProgress = 1;
 
     // ---- Lifecycle ----------------------------------------------------------
@@ -186,9 +195,14 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
         this.outputFiles = [];
         this.progressPercent = 10;
 
+        this.resolvedLibraryId = await getLibraryIdForFile({ sourceContentDocumentId: this.selectedFile.id });
+        this.resolvedFolderId = await getFolderIdForFile({ sourceContentDocumentId: this.selectedFile.id });
+
         this.jobId = await startHeadlessSplit({
             sourceContentDocumentId: this.selectedFile.id,
-            targetRecordId: null
+            targetRecordId: null,
+            libraryId: this.resolvedLibraryId,
+            targetFolderId: this.resolvedFolderId
         });
 
         this.stage = 'classifying';
@@ -211,8 +225,7 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
         this.statusMessage = 'Loading source PDF...';
         this.progressPercent = 15;
         const cvId = await getLatestContentVersionId({ contentDocumentId: this.selectedFile.id });
-        const base64 = await getFileContentBase64({ contentVersionId: cvId });
-        this.sourcePdfBytes = base64ToUint8(base64);
+        this.sourcePdfBytes = await this.loadSourcePdfBytes(cvId);
 
         const { PDFDocument } = window.PDFLib;
         const sourceDoc = await PDFDocument.load(this.sourcePdfBytes);
@@ -221,7 +234,7 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
             throw new Error('Source PDF has no pages.');
         }
 
-        // Branch: single-call (≤ 12 MB, fits in Prompt Builder) vs chunked
+        // Branch: single-call (<= 7.5 MB) vs size-based chunking.
         const useSingleCall = this.sourcePdfBytes.length <= SINGLE_CALL_THRESHOLD_BYTES;
 
         if (useSingleCall) {
@@ -240,31 +253,30 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
             this.progressPercent = 40;
 
             // Whole source acts as "chunk 0" with absolute page numbers (offset=1).
-            await enqueueChunkClassification({
+            await enqueueChunkClassifications({
                 jobId: this.jobId,
-                chunkIndex: 0,
-                chunkContentDocumentId: this.selectedFile.id,
-                pageOffset: 1
+                chunksJson: JSON.stringify([{
+                    chunkIndex: 0,
+                    chunkContentDocumentId: this.selectedFile.id,
+                    pageOffset: 1
+                }])
             });
             return;
         }
 
-        const chunks = computeChunks(totalPages, this.chunkSize, this.chunkOverlap);
+        const chunks = await buildPdfChunksBySize(
+            PDFDocument,
+            sourceDoc,
+            BROWSER_CHUNK_TARGET_BYTES,
+            0
+        );
         this.totalChunksForProgress = chunks.length;
-        this.statusMessage = `Preparing ${chunks.length} chunks (${totalPages} pages)...`;
+        this.statusMessage = `Preparing ${chunks.length} browser-safe chunks (${totalPages} pages)...`;
         this.progressPercent = 25;
 
         const chunkUploads = [];
         for (const chunk of chunks) {
-            const subDoc = await PDFDocument.create();
-            const pageIndices = [];
-            for (let p = chunk.startPage - 1; p <= chunk.endPage - 1; p++) {
-                pageIndices.push(p);
-            }
-            const copied = await subDoc.copyPages(sourceDoc, pageIndices);
-            copied.forEach((page) => subDoc.addPage(page));
-            const subBytes = await subDoc.save();
-            const b64 = uint8ToBase64(subBytes);
+            const b64 = uint8ToBase64(chunk.bytes);
             const fileName = `bundle_chunk_${chunk.chunkIndex}.pdf`;
             // eslint-disable-next-line no-await-in-loop
             const chunkCdId = await uploadChunkPdf({
@@ -286,15 +298,14 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
         this.statusMessage = `Classifying ${chunks.length} chunks...`;
         this.progressPercent = 40;
 
-        for (const upload of chunkUploads) {
-            // eslint-disable-next-line no-await-in-loop
-            await enqueueChunkClassification({
-                jobId: this.jobId,
+        await enqueueChunkClassifications({
+            jobId: this.jobId,
+            chunksJson: JSON.stringify(chunkUploads.map((upload) => ({
                 chunkIndex: upload.chunkIndex,
                 chunkContentDocumentId: upload.chunkContentDocumentId,
                 pageOffset: upload.startPage
-            });
-        }
+            })))
+        });
     }
 
     // ---- empApi event handling ----------------------------------------------
@@ -341,14 +352,14 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
             return;
         }
         if (decoded.status === 'Error') {
-            this.fail(decoded.message || 'Unknown error');
+            this.fail(decoded.message || 'Unknown error', false);
         }
     }
 
     async splitAndSave(mergedSegmentsJson) {
         const segments = JSON.parse(mergedSegmentsJson);
         if (!segments || segments.length === 0) {
-            await startSaving({ jobId: this.jobId, requestsJson: '[]', batchSize: 8 });
+            await this.saveSplitRequestBatch([], 0, '[]', true);
             return;
         }
         if (!this.sourcePdfBytes) {
@@ -361,23 +372,55 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
         }
         const { PDFDocument } = window.PDFLib;
         const sourceDoc = await PDFDocument.load(this.sourcePdfBytes);
-        const requests = segmentsToSaveRequests(segments);
-        for (const req of requests) {
-            const subDoc = await PDFDocument.create();
-            // pdf-lib accepts any array of indices, contiguous or not.
-            const pageIndices = req.pages.map((p) => p - 1);
-            // eslint-disable-next-line no-await-in-loop
-            const copied = await subDoc.copyPages(sourceDoc, pageIndices);
-            copied.forEach((page) => subDoc.addPage(page));
-            // eslint-disable-next-line no-await-in-loop
-            const bytes = await subDoc.save();
-            req.base64Content = uint8ToBase64(bytes);
+        const requests = await buildBrowserSaveRequests(
+            PDFDocument,
+            sourceDoc,
+            segmentsToSaveRequests(segments),
+            BROWSER_OTHER_OUTPUT_TARGET_BYTES,
+            MAX_SAVE_APEX_PAYLOAD_CHARS
+        );
+        const typeBreakdownJson = buildTypeBreakdownJson(requests);
+        let pending = [];
+        let documentsSaved = 0;
+
+        for (const outputRequest of requests) {
+            if (estimateJsonChars([outputRequest]) > MAX_SAVE_APEX_PAYLOAD_CHARS) {
+                throw new Error(`Split output ${outputRequest.fileName} is too large for browser save. Use Web/headless mode for this file.`);
+            }
+
+            if (pending.length > 0
+                && estimateJsonChars([...pending, outputRequest]) > MAX_SAVE_APEX_PAYLOAD_CHARS) {
+                // eslint-disable-next-line no-await-in-loop
+                documentsSaved = await this.saveSplitRequestBatch(pending, documentsSaved, typeBreakdownJson, false);
+                pending = [];
+            }
+            pending.push(outputRequest);
         }
-        await startSaving({
+
+        await this.saveSplitRequestBatch(pending, documentsSaved, typeBreakdownJson, true);
+    }
+
+    async loadSourcePdfBytes(contentVersionId) {
+        try {
+            return await fetchContentVersionBytes(contentVersionId);
+        } catch (downloadError) {
+            this.statusMessage = downloadError && downloadError.message
+                ? 'Direct file download failed; loading through Apex fallback...'
+                : 'Loading source PDF through Apex fallback...';
+            const base64 = await getFileContentBase64({ contentVersionId });
+            return base64ToUint8(base64);
+        }
+    }
+
+    async saveSplitRequestBatch(requests, documentsSavedSoFar, typeBreakdownJson, isFinalBatch) {
+        const result = await saveSplitBatch({
             jobId: this.jobId,
             requestsJson: JSON.stringify(requests),
-            batchSize: 8
+            documentsSavedSoFar,
+            typeBreakdownJson,
+            isFinalBatch
         });
+        return result && result.documentsSaved ? result.documentsSaved : documentsSavedSoFar;
     }
 
     async loadOutputFiles() {
@@ -513,9 +556,26 @@ export default class AiDocumentSplitterStudio extends NavigationMixin(LightningE
         this.dispatchEvent(new ShowToastEvent({ title, message, variant }));
     }
 
-    fail(message) {
+    fail(message, reportToServer = true) {
+        const failedStage = this.stage || 'Browser split';
         this.stage = 'error';
         this.errorMessage = message;
         this.toast('Error', message, 'error');
+        if (reportToServer) {
+            this.reportJobFailure(message, failedStage);
+        }
+    }
+
+    reportJobFailure(message, failedStage) {
+        if (!this.jobId) {
+            return;
+        }
+        markJobFailed({
+            jobId: this.jobId,
+            stage: failedStage || 'Browser split',
+            errorDetail: message
+        }).catch(() => {
+            // Keep the original browser error visible; failure reporting is best effort.
+        });
     }
 }

@@ -17,7 +17,7 @@ private class AIDocReviewLaunchControllerTest {
 
         Test.startTest();
         AIDocReviewLaunchController.LaunchState state =
-            AIDocReviewLaunchController.getLaunchState(app.Id);
+            AIDocReviewLaunchController.getLaunchState(app.Id, false);
         Test.stopTest();
 
         Assert.areEqual(true, state.isSuccess, 'coverage should succeed');
@@ -36,7 +36,7 @@ private class AIDocReviewLaunchControllerTest {
 
         Test.startTest();
         AIDocReviewLaunchController.LaunchState state =
-            AIDocReviewLaunchController.getLaunchState(app.Id);
+            AIDocReviewLaunchController.getLaunchState(app.Id, false);
         Test.stopTest();
 
         Assert.areEqual(true, state.isSuccess, 'coverage should succeed');
@@ -47,6 +47,46 @@ private class AIDocReviewLaunchControllerTest {
         Assert.areEqual(1, state.missingCount, 'missing categories remain visible in the cached view');
         Assert.areEqual(leaves[0].clcommon__Category_Name__c, firstDocumentName(state.classificationJson),
             'cached classification should be normalized to the category name');
+    }
+
+    @IsTest
+    static void shouldRunFlowForFallbackOnlyWhenUserIncludesIt() {
+        genesis__Applications__c app = AIDocTestFactory.createApplication(true);
+        clcommon__Document_Category__c parentCategory = new clcommon__Document_Category__c(
+            clcommon__Category_Name__c = 'Uncategorized',
+            genesis__Application__c = app.Id
+        );
+        insert parentCategory;
+
+        clcommon__Document_Category__c fallbackCategory = new clcommon__Document_Category__c(
+            clcommon__Category_Name__c = 'Others',
+            genesis__Application__c = app.Id,
+            clcommon__Parent_Document_Category__c = parentCategory.Id
+        );
+        clcommon__Document_Category__c passportCategory = new clcommon__Document_Category__c(
+            clcommon__Category_Name__c = 'Passport',
+            genesis__Application__c = app.Id,
+            clcommon__Parent_Document_Category__c = parentCategory.Id
+        );
+        insert new List<clcommon__Document_Category__c>{ fallbackCategory, passportCategory };
+
+        AIDocTestFactory.attachFile(fallbackCategory.Id, 'other_document');
+        ContentDocumentLink passportLink = AIDocTestFactory.attachFile(passportCategory.Id, 'passport');
+        storeCachedReview(passportCategory.Id, passportLink.ContentDocumentId);
+
+        Test.startTest();
+        AIDocReviewLaunchController.LaunchState excludedState =
+            AIDocReviewLaunchController.getLaunchState(app.Id, false);
+        AIDocReviewLaunchController.LaunchState includedState =
+            AIDocReviewLaunchController.getLaunchState(app.Id, true);
+        Test.stopTest();
+
+        Assert.areEqual(true, excludedState.canShowCachedReview,
+            'unchecked fallback category should not force another AI call');
+        Assert.areEqual(false, includedState.canShowCachedReview,
+            'checked fallback category should include its unreviewed file');
+        Assert.areEqual(1, includedState.unreviewedFileCount,
+            'only the fallback file still needs review');
     }
 
     @IsTest

@@ -162,6 +162,32 @@ private class SplitJobServiceTest {
     }
 
     @IsTest
+    static void shouldLinkTempChunkFilesToJob() {
+        Id jobId;
+        Id chunkContentDocumentId;
+
+        Test.startTest();
+        System.runAs(getTestUser()) {
+            jobId = SplitJobService.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, 5, 1);
+            chunkContentDocumentId = createContentDocument('bundle_chunk_0');
+
+            SplitJobService.linkTempChunkFiles(jobId,
+                new List<PdfServiceChunkClassifyBatch.ChunkWork>{
+                    new PdfServiceChunkClassifyBatch.ChunkWork(0, chunkContentDocumentId, 1)
+                });
+        }
+        Test.stopTest();
+
+        Integer linkCount = [
+            SELECT COUNT()
+            FROM ContentDocumentLink
+            WHERE LinkedEntityId = :jobId
+              AND ContentDocumentId = :chunkContentDocumentId
+        ];
+        Assert.areEqual(1, linkCount, 'Temp chunk should be linked to the split job for exact cleanup');
+    }
+
+    @IsTest
     static void shouldFailJob_WhenStageErrors() {
         Id jobId;
 
@@ -287,5 +313,21 @@ private class SplitJobServiceTest {
             Assert.isTrue(e.getMessage().toLowerCase().contains(expectedFieldInMessage.toLowerCase()),
                 'Exception message should reference ' + expectedFieldInMessage + ', got: ' + e.getMessage());
         }
+    }
+
+    private static Id createContentDocument(String title) {
+        ContentVersion version = new ContentVersion(
+            Title = title,
+            PathOnClient = title + '.pdf',
+            VersionData = Blob.valueOf('PDF-BYTES-' + title),
+            IsMajorVersion = true
+        );
+        insert version;
+        return [
+            SELECT ContentDocumentId
+            FROM ContentVersion
+            WHERE Id = :version.Id
+            LIMIT 1
+        ].ContentDocumentId;
     }
 }

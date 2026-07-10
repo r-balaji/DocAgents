@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Configures document intake runtime behavior by source channel. Apex uses this metadata to resolve customer-friendly library and folder names into Salesforce content workspace ids before starting the splitter pipeline.</description>
+    <label>Document Intake Config</label>
+    <pluralLabel>Document Intake Configs</pluralLabel>
+    <visibility>Public</visibility>
+</CustomObject>

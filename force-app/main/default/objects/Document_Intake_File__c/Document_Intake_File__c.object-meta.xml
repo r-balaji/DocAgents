@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <deploymentStatus>Deployed</deploymentStatus>
+    <description>File-level work item for a document intake submission. Tracks each uploaded Salesforce File through splitting, category mapping, and AI review.</description>
+    <enableHistory>true</enableHistory>
+    <enableReports>true</enableReports>
+    <label>Document Intake File</label>
+    <nameField>
+        <displayFormat>DIF-{00000000}</displayFormat>
+        <label>Document Intake File Name</label>
+        <startingNumber>1</startingNumber>
+        <type>AutoNumber</type>
+    </nameField>
+    <pluralLabel>Document Intake Files</pluralLabel>
+    <sharingModel>ControlledByParent</sharingModel>
+    <visibility>Public</visibility>
+</CustomObject>

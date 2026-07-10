@@ -110,7 +110,7 @@ private class SplitSaveQueueableTest {
 
             List<SplitSaveRequest> files = new List<SplitSaveRequest>();
             for (Integer i = 0; i < 5; i++) {
-                files.add(buildRequest('Other_' + i + '.pdf', 'OTHER', null, null, i + 1, i + 1));
+                files.add(buildRequest('SplitFile_' + i + '.pdf', 'OTHER', null, null, i + 1, i + 1));
             }
             SplitJobService.startSaving(jobId, files, 2);   // 5 files, batch=2 -> 3 batches
         }
@@ -133,12 +133,12 @@ private class SplitSaveQueueableTest {
             SplitSaveRequest.buildFileName('BANK_STATEMENT', 'Bank of America', 'John Smith', 1));
         Assert.areEqual('DriversLicense_Jane_Doe.pdf',
             SplitSaveRequest.buildFileName('DRIVERS_LICENSE', null, 'Jane Doe', 1));
-        Assert.areEqual('Other_2.pdf',
+        Assert.areEqual('Other.pdf',
             SplitSaveRequest.buildFileName('OTHER', null, null, 2));
-        Assert.areEqual('Other_1.pdf',
+        Assert.areEqual('Other.pdf',
             SplitSaveRequest.buildFileName('OTHER', null, null, 1),
-            'OTHER always carries a numeric suffix, even for the first one');
-        Assert.areEqual('Other_3.pdf',
+            'OTHER should use one catch-all filename');
+        Assert.areEqual('Other.pdf',
             SplitSaveRequest.buildFileName('OTHER', null, 'Lakeside Auto Group', 3),
             'OTHER ignores party name (AI extraction is noise for unrecognized pages)');
         Assert.areEqual('PersonalTaxReturn1040.pdf',

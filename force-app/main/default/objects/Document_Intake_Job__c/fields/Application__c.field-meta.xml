@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Application__c</fullName>
+    <description>Application that received this portal document submission.</description>
+    <deleteConstraint>Restrict</deleteConstraint>
+    <inlineHelpText>Application associated with the portal upload. Intake processing attaches split/reviewed documents back to this application.</inlineHelpText>
+    <label>Application</label>
+    <referenceTo>genesis__Applications__c</referenceTo>
+    <relationshipLabel>Document Intake Jobs</relationshipLabel>
+    <relationshipName>Document_Intake_Jobs</relationshipName>
+    <required>true</required>
+    <type>Lookup</type>
+</CustomField>

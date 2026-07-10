@@ -8,15 +8,19 @@ public with sharing class AIDocReviewLaunchController {
     /**
      * Checks the current review state for an application.
      * @param applicationId Application record Id.
-     * @return Launch state with cached review JSON when every current file is already reviewed.
+     * @param includeFallbackCategory Whether to include the configured fallback category in this review run.
+     * @return Launch state with cached review JSON when every selected current file is already reviewed.
      * @throws AuraHandledException when the application Id is missing or review state cannot be loaded.
      */
     @AuraEnabled
-    public static LaunchState getLaunchState(Id applicationId) {
+    public static LaunchState getLaunchState(Id applicationId, Boolean includeFallbackCategory) {
         validateApplicationId(applicationId);
 
         try {
-            AIDocCoverageCheck.Response coverage = loadCoverage(applicationId);
+            AIDocCoverageCheck.Response coverage = loadCoverage(
+                applicationId,
+                includeFallbackCategory == true
+            );
             LaunchState state = new LaunchState();
             state.isSuccess = coverage.isSuccess;
             state.errorMessage = coverage.errorMessage;
@@ -53,6 +57,19 @@ public with sharing class AIDocReviewLaunchController {
             List<clcommon__Document_Category__c> updates = buildClearUpdates(applicationId);
             ClearResult result = new ClearResult();
             result.success = true;
+            Database.SaveResult[] applicationResults = Database.update(
+                new List<genesis__Applications__c>{
+                    new genesis__Applications__c(
+                        Id = applicationId,
+                        Email_Template__c = ''
+                    )
+                },
+                false,
+                AccessLevel.USER_MODE
+            );
+            if (!applicationResults[0].isSuccess()) {
+                throw new AuraHandledException('Unable to clear the AI review email draft.');
+            }
             if (updates.isEmpty()) {
                 return result;
             }
@@ -74,9 +91,13 @@ public with sharing class AIDocReviewLaunchController {
         }
     }
 
-    private static AIDocCoverageCheck.Response loadCoverage(Id applicationId) {
+    private static AIDocCoverageCheck.Response loadCoverage(
+        Id applicationId,
+        Boolean includeFallbackCategory
+    ) {
         AIDocCoverageCheck.Request req = new AIDocCoverageCheck.Request();
         req.applicationId = applicationId;
+        req.includeFallbackCategory = includeFallbackCategory;
         List<AIDocCoverageCheck.Response> responses =
             AIDocCoverageCheck.execute(new List<AIDocCoverageCheck.Request>{ req });
         if (responses.isEmpty()) {

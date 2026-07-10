@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Item_Key__c</fullName>
+    <description>Unique submission-and-file key used to prevent duplicate file work items.</description>
+    <externalId>true</externalId>
+    <inlineHelpText>Generated from the parent client submission key and ContentDocument Id.</inlineHelpText>
+    <label>Item Key</label>
+    <length>255</length>
+    <required>true</required>
+    <type>Text</type>
+    <unique>true</unique>
+</CustomField>
