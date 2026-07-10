@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Split_Job__c</fullName>
+    <description>Splitter run created for this uploaded file.</description>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <inlineHelpText>Populated when async intake processing starts the headless PDF splitter for this file.</inlineHelpText>
+    <label>Split Job</label>
+    <referenceTo>Split_Job__c</referenceTo>
+    <relationshipLabel>Document Intake Files</relationshipLabel>
+    <relationshipName>Document_Intake_Files</relationshipName>
+    <required>false</required>
+    <type>Lookup</type>
+</CustomField>

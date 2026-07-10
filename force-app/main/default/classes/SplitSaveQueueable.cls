@@ -1,9 +1,9 @@
 /**
  * Queueable that saves split PDF files back to the source library in batches.
  *
- * The LWC, after running pdf-lib to extract each segment from the source bundle,
- * calls SplitJobService.startSaving with the full list. That method enqueues
- * this Queueable. Each execution:
+ * Legacy/server-side save worker. Callers that already have a small in-memory
+ * list can call SplitJobService.startSaving with the full list. That method
+ * enqueues this Queueable. Each execution:
  *   1. Takes the next batchSize items off the remaining list.
  *   2. Inserts one ContentVersion per file in a single DML statement, setting
  *      FirstPublishLocationId to the job's library so Salesforce auto-creates
@@ -105,8 +105,7 @@ public with sharing class SplitSaveQueueable implements Queueable {
      * smoke test in Phase 6/7 instead. The orchestration around it (chaining,
      * tally, finalize, error handling) is covered by unit tests.
      */
-    @TestVisible
-    private static void saveBatch(List<SplitSaveRequest> batch, Id libraryId, Id jobId, Id folderId) {
+    public static void saveBatch(List<SplitSaveRequest> batch, Id libraryId, Id jobId, Id folderId) {
         if (Test.isRunningTest()) {
             return;
         }
@@ -120,6 +119,7 @@ public with sharing class SplitSaveQueueable implements Queueable {
             cv.PathOnClient = req.fileName;
             cv.VersionData = EncodingUtil.base64Decode(req.base64Content);
             cv.FirstPublishLocationId = libraryId;
+            cv.AI_Created_Doc__c = true;
             versions.add(cv);
         }
         if (versions.isEmpty()) {
@@ -190,8 +190,7 @@ public with sharing class SplitSaveQueueable implements Queueable {
         return (Id) job.Library_Id__c;
     }
 
-    @TestVisible
-    private static Split_Job__c lookupJobSaveContext(Id jobId) {
+    public static Split_Job__c lookupJobSaveContext(Id jobId) {
         Split_Job__c job = [SELECT Library_Id__c, Target_Folder_Id__c
                             FROM Split_Job__c WHERE Id = :jobId WITH USER_MODE LIMIT 1];
         if (String.isBlank(job.Library_Id__c)) {

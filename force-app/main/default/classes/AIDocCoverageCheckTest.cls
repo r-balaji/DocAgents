@@ -137,6 +137,103 @@ private class AIDocCoverageCheckTest {
     // ─── Bulkification Test ───────────────────────────────────────────────
 
     @isTest
+    static void shouldExcludeApplicationSubmissionDocumentsFromReview() {
+        genesis__Applications__c app = AIDocTestFactory.createApplication(true);
+        clcommon__Document_Category__c parentCategory = new clcommon__Document_Category__c(
+            clcommon__Category_Name__c = 'Application Documents',
+            genesis__Application__c = app.Id
+        );
+        insert parentCategory;
+
+        clcommon__Document_Category__c submissionCategory = new clcommon__Document_Category__c(
+            clcommon__Category_Name__c = 'Application Submission Documents',
+            genesis__Application__c = app.Id,
+            clcommon__Parent_Document_Category__c = parentCategory.Id
+        );
+        clcommon__Document_Category__c passportCategory = new clcommon__Document_Category__c(
+            clcommon__Category_Name__c = 'Passport',
+            genesis__Application__c = app.Id,
+            clcommon__Parent_Document_Category__c = parentCategory.Id
+        );
+        insert new List<clcommon__Document_Category__c>{ submissionCategory, passportCategory };
+
+        AIDocTestFactory.attachFile(submissionCategory.Id, 'application_submission');
+        ContentDocumentLink passportLink = AIDocTestFactory.attachFile(passportCategory.Id, 'passport');
+
+        AIDocCoverageCheck.Request req = new AIDocCoverageCheck.Request();
+        req.applicationId = app.Id;
+
+        Test.startTest();
+        List<AIDocCoverageCheck.Response> out = AIDocCoverageCheck.execute(
+            new List<AIDocCoverageCheck.Request>{ req });
+        Test.stopTest();
+
+        AIDocCoverageCheck.Response response = out[0];
+        Assert.areEqual(1, response.totalCount, 'only the reviewable leaf should be counted');
+        Assert.areEqual(1, response.filledCount, 'only the Passport file should count as filled');
+        Assert.areEqual(0, response.missingCount, 'the remaining reviewable category has a file');
+        Assert.areEqual(1, response.encodedRows.size(), 'excluded category file must not be sent to the LLM');
+
+        Map<String, Object> reviewRow =
+            (Map<String, Object>) JSON.deserializeUntyped(response.encodedRows[0]);
+        Assert.areEqual('Passport', reviewRow.get('categoryName'),
+            'the LLM row should belong to the reviewable category');
+        Assert.areEqual(String.valueOf(passportLink.ContentDocumentId), reviewRow.get('fileContentDocumentId'),
+            'only the Passport file should be reviewed');
+
+        Map<String, Object> coverage =
+            (Map<String, Object>) JSON.deserializeUntyped(response.coverageJson);
+        List<Object> coverageRows = (List<Object>) coverage.get('rows');
+        Assert.areEqual(1, coverageRows.size(), 'excluded category should not appear in the UI coverage rows');
+        Assert.areEqual('Passport', ((Map<String, Object>) coverageRows[0]).get('name'),
+            'the UI should show only the reviewable category');
+    }
+
+    @isTest
+    static void shouldIncludeFallbackCategoryOnlyWhenRequested() {
+        genesis__Applications__c app = AIDocTestFactory.createApplication(true);
+        clcommon__Document_Category__c parentCategory = new clcommon__Document_Category__c(
+            clcommon__Category_Name__c = 'Uncategorized',
+            genesis__Application__c = app.Id
+        );
+        insert parentCategory;
+
+        clcommon__Document_Category__c fallbackCategory = new clcommon__Document_Category__c(
+            clcommon__Category_Name__c = 'Others',
+            genesis__Application__c = app.Id,
+            clcommon__Parent_Document_Category__c = parentCategory.Id
+        );
+        clcommon__Document_Category__c passportCategory = new clcommon__Document_Category__c(
+            clcommon__Category_Name__c = 'Passport',
+            genesis__Application__c = app.Id,
+            clcommon__Parent_Document_Category__c = parentCategory.Id
+        );
+        insert new List<clcommon__Document_Category__c>{ fallbackCategory, passportCategory };
+        AIDocTestFactory.attachFile(fallbackCategory.Id, 'other_document');
+        AIDocTestFactory.attachFile(passportCategory.Id, 'passport');
+
+        AIDocCoverageCheck.Request excludedRequest = new AIDocCoverageCheck.Request();
+        excludedRequest.applicationId = app.Id;
+        AIDocCoverageCheck.Request includedRequest = new AIDocCoverageCheck.Request();
+        includedRequest.applicationId = app.Id;
+        includedRequest.includeFallbackCategory = true;
+
+        Test.startTest();
+        List<AIDocCoverageCheck.Response> responses = AIDocCoverageCheck.execute(
+            new List<AIDocCoverageCheck.Request>{ excludedRequest, includedRequest });
+        Test.stopTest();
+
+        Assert.areEqual(1, responses[0].totalCount,
+            'fallback leaf should be excluded when the request does not include it');
+        Assert.areEqual(1, responses[0].encodedRows.size(),
+            'only the Passport file should be reviewed by default');
+        Assert.areEqual(2, responses[1].totalCount,
+            'fallback leaf should be counted when explicitly included');
+        Assert.areEqual(2, responses[1].encodedRows.size(),
+            'both files should be sent for review when fallback is included');
+    }
+
+    @isTest
     static void shouldBulkifyAcrossMultipleApplications_WhenManyRequests() {
         // Two apps with different shapes.
         genesis__Applications__c appA = AIDocTestFactory.createApplication(true);

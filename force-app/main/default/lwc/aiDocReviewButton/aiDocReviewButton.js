@@ -14,10 +14,18 @@ export default class AiDoc1ReviewButton extends LightningElement {
     showCachedReview = false;
     isChecking = false;
     isClearing = false;
+    includeFallbackCategory = false;
     cachedReview;
 
     get flowInputVariables() {
-        return [{ name: 'recordId', type: 'String', value: this.recordId }];
+        return [
+            { name: 'recordId', type: 'String', value: this.recordId },
+            {
+                name: 'includeFallbackCategory',
+                type: 'Boolean',
+                value: this.includeFallbackCategory
+            }
+        ];
     }
 
     get isBusy() {
@@ -51,7 +59,10 @@ export default class AiDoc1ReviewButton extends LightningElement {
     async handleClick() {
         this.isChecking = true;
         try {
-            const state = await getLaunchState({ applicationId: this.recordId });
+            const state = await getLaunchState({
+                applicationId: this.recordId,
+                includeFallbackCategory: this.includeFallbackCategory
+            });
             this.cachedReview = state;
             if (state?.canShowCachedReview) {
                 this.showCachedReview = true;
@@ -65,6 +76,10 @@ export default class AiDoc1ReviewButton extends LightningElement {
         } finally {
             this.isChecking = false;
         }
+    }
+
+    handleIncludeFallbackChange(event) {
+        this.includeFallbackCategory = event.target.checked;
     }
 
     async handleClearReview() {

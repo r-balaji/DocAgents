@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Content_Hash__c</fullName>
+    <description>Optional content hash supplied by the portal for the uploaded file.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Optional file hash, such as SHA-256, used for audit and payload conflict detection when supplied.</inlineHelpText>
+    <label>Content Hash</label>
+    <length>128</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>LLM_Response_Audit_JSON__c</fullName>
+    <description>Diagnostic audit JSON containing the raw LLM prompt response for each classified bundle chunk before parser cleanup or page-offset shifting.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Auto-managed. Review this JSON when splitter classification output does not parse or does not match the expected document segments.</inlineHelpText>
+    <label>LLM Response Audit JSON</label>
+    <length>32768</length>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>LongTextArea</type>
+    <visibleLines>10</visibleLines>
+</CustomField>

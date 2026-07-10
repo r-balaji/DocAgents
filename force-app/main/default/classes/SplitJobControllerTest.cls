@@ -51,6 +51,32 @@ private class SplitJobControllerTest {
     }
 
     @IsTest
+    static void shouldStartHeadlessSplit_WhenLibraryProvidedForFileOutsideLibrary() {
+        Id sourceContentDocumentId;
+        Id jobId;
+
+        System.runAs(getTestUser()) {
+            sourceContentDocumentId = createContentDocument('headless_source_outside_library');
+
+            Test.startTest();
+            jobId = SplitJobController.startHeadlessSplit(sourceContentDocumentId, null, FAKE_LIBRARY_ID, null);
+            Test.stopTest();
+        }
+
+        Split_Job__c saved = [
+            SELECT Source_ContentDocument_Id__c, Library_Id__c, Is_Headless__c, Chunk_Count__c
+            FROM Split_Job__c
+            WHERE Id = :jobId
+        ];
+        Assert.areEqual(String.valueOf(sourceContentDocumentId), saved.Source_ContentDocument_Id__c,
+            'Headless job should keep the selected source file');
+        Assert.areEqual(String.valueOf(FAKE_LIBRARY_ID), saved.Library_Id__c,
+            'Headless job should use the library passed by the LWC/controller');
+        Assert.isTrue(saved.Is_Headless__c, 'Controller should create a headless split job');
+        Assert.areEqual(1, saved.Chunk_Count__c, 'Small test files use the single-call placeholder chunk');
+    }
+
+    @IsTest
     static void shouldRethrowAuraHandled_WhenStartJobInputsInvalid() {
         Test.startTest();
         System.runAs(getTestUser()) {
@@ -66,24 +92,30 @@ private class SplitJobControllerTest {
     }
 
     @IsTest
-    static void shouldEnqueueChunkClassification_HappyPath() {
-        // Stub the ClassifyQueueable's flow invocation so we don't hit the real
-        // prompt template (and so a fake file Id doesn't break the test).
-        ClassifyQueueable.testStubResponse = '[]';
+    static void shouldEnqueueChunkClassifications_HappyPath() {
+        AIDocSplitClassifierService.testStubResponse =
+            '[{"document_type":"BANK_STATEMENT","source_institution":"Chase","named_party":"John","instance_label":"Chase","pages":[1]}]';
 
         Id jobId;
         Test.startTest();
         System.runAs(getTestUser()) {
-            jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, null, 14, 1);
-            SplitJobController.enqueueChunkClassification(jobId, 0, FAKE_CD_ID, 1);
+            jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, null, 14, 2);
+            String chunksJson = '['
+                + '{"chunkIndex":0,"chunkContentDocumentId":"' + FAKE_CD_ID + '","pageOffset":1},'
+                + '{"chunkIndex":1,"chunkContentDocumentId":"' + FAKE_CD_ID + '","pageOffset":4}'
+                + ']';
+            SplitJobController.enqueueChunkClassifications(jobId, chunksJson);
         }
         Test.stopTest();
 
-        Split_Job__c after = [SELECT Status__c FROM Split_Job__c WHERE Id = :jobId];
-        // After Test.stopTest the chained queueable runs. With chunkCount=1, this
-        // chunk's completion takes the job through Merging to Splitting.
-        Assert.isTrue(after.Status__c == 'Detecting' || after.Status__c == 'Splitting',
-            'Expected Detecting (mid-flight) or Splitting (chain ran), got ' + after.Status__c);
+        Split_Job__c after = [
+            SELECT Status__c, Chunks_Completed__c, Merged_Segments_JSON__c
+            FROM Split_Job__c
+            WHERE Id = :jobId
+        ];
+        Assert.areEqual(2, after.Chunks_Completed__c, 'both chunks should be classified by one batch');
+        Assert.areEqual('Splitting', after.Status__c, 'last chunk should trigger merge');
+        Assert.isTrue(String.isNotBlank(after.Merged_Segments_JSON__c), 'merged split JSON should be produced');
     }
 
     @IsTest
@@ -91,8 +123,8 @@ private class SplitJobControllerTest {
         Test.startTest();
         System.runAs(getTestUser()) {
             try {
-                SplitJobController.enqueueChunkClassification(null, 0, FAKE_CD_ID, 1);
-                Assert.fail('Expected AuraHandledException for null jobId');
+                SplitJobController.enqueueChunkClassifications(null, '[]');
+                Assert.fail('Expected AuraHandledException for null bulk jobId');
             } catch (AuraHandledException e) {
                 Assert.areNotEqual(null, e);
             }
@@ -132,6 +164,40 @@ private class SplitJobControllerTest {
         Split_Job__c after = [SELECT Status__c, Documents_Created__c FROM Split_Job__c WHERE Id = :jobId];
         Assert.areEqual('Complete', after.Status__c);
         Assert.areEqual(1, after.Documents_Created__c);
+    }
+
+    @IsTest
+    static void shouldSaveSplitBatch_ProgressThenFinalize() {
+        Id jobId;
+        SplitJobController.SaveBatchResult firstResult;
+        SplitJobController.SaveBatchResult finalResult;
+        String typeBreakdownJson = '[{"type":"DRIVERS_LICENSE","count":1}]';
+
+        Test.startTest();
+        System.runAs(getTestUser()) {
+            jobId = SplitJobController.startJob(FAKE_CD_ID, FAKE_LIBRARY_ID, null, 5, 1);
+            String tinyB64 = EncodingUtil.base64Encode(Blob.valueOf('%PDF-1.4\n%%EOF\n'));
+            String requestsJson = '[{"fileName":"a.pdf","base64Content":"' + tinyB64
+                + '","documentType":"DRIVERS_LICENSE","sourceInstitution":null,"namedParty":"John","instanceLabel":null,"pages":[1]}]';
+
+            firstResult = SplitJobController.saveSplitBatch(jobId, requestsJson, 0, typeBreakdownJson, false);
+            finalResult = SplitJobController.saveSplitBatch(jobId, '[]', firstResult.documentsSaved, typeBreakdownJson, true);
+        }
+        Test.stopTest();
+
+        Assert.areEqual(1, firstResult.documentsSaved, 'First browser batch should save one file');
+        Assert.areEqual(false, firstResult.isComplete, 'First browser batch should not finalize');
+        Assert.areEqual(1, finalResult.documentsSaved, 'Final empty batch should preserve running count');
+        Assert.areEqual(true, finalResult.isComplete, 'Final browser batch should finalize');
+
+        Split_Job__c after = [
+            SELECT Status__c, Documents_Created__c, Type_Breakdown_JSON__c
+            FROM Split_Job__c
+            WHERE Id = :jobId
+        ];
+        Assert.areEqual('Complete', after.Status__c);
+        Assert.areEqual(1, after.Documents_Created__c);
+        Assert.areEqual(typeBreakdownJson, after.Type_Breakdown_JSON__c);
     }
 
     @IsTest
@@ -184,5 +250,21 @@ private class SplitJobControllerTest {
             }
         }
         Test.stopTest();
+    }
+
+    private static Id createContentDocument(String title) {
+        ContentVersion version = new ContentVersion(
+            Title = title,
+            PathOnClient = title + '.pdf',
+            VersionData = Blob.valueOf('PDF-BYTES-' + title),
+            IsMajorVersion = true
+        );
+        insert version;
+        return [
+            SELECT ContentDocumentId
+            FROM ContentVersion
+            WHERE Id = :version.Id
+            LIMIT 1
+        ].ContentDocumentId;
     }
 }

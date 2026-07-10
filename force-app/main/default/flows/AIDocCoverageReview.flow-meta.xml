@@ -86,6 +86,12 @@
                 <elementReference>recordId</elementReference>
             </value>
         </inputParameters>
+        <inputParameters>
+            <name>includeFallbackCategory</name>
+            <value>
+                <elementReference>includeFallbackCategory</elementReference>
+            </value>
+        </inputParameters>
         <nameSegment>AIDocCoverageCheck</nameSegment>
         <offset>0</offset>
         <storeOutputAutomatically>true</storeOutputAutomatically>
@@ -351,6 +357,13 @@
         <dataType>String</dataType>
         <isCollection>true</isCollection>
         <isInput>false</isInput>
+        <isOutput>false</isOutput>
+    </variables>
+    <variables>
+        <name>includeFallbackCategory</name>
+        <dataType>Boolean</dataType>
+        <isCollection>false</isCollection>
+        <isInput>true</isInput>
         <isOutput>false</isOutput>
     </variables>
     <variables>

@@ -6,9 +6,9 @@
  * by SegmentMerger and the splitter's save pipeline.
  *
  * Fields:
- *  - documentType: one of the Document_Type__mdt.Type_Code__c values (e.g. BANK_STATEMENT).
+ *  - documentType: the type code returned by the split-classification prompt (e.g. BANK_STATEMENT).
  *  - sourceInstitution: optional, only populated for types where
- *    Document_Type__mdt.Capture_Source__c is true (e.g. Bank Statement -> Chase).
+ *    the classifier can identify a source institution (e.g. Bank Statement -> Chase).
  *  - namedParty: optional, the person or business name on the document.
  *  - instanceLabel: optional, distinguishes multiple instances of the same type
  *    (e.g. "Chase 2026-04" vs "Wells Fargo 2026-04"). Used by the prompt for

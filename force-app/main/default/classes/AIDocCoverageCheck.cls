@@ -14,6 +14,8 @@
  * duplicated processing. No AI involvement — fully deterministic SOQL.
  */
 public with sharing class AIDocCoverageCheck {
+    private static final String EXCLUDED_REVIEW_CATEGORY_NAME = 'Application Submission Documents';
+
     @InvocableMethod(
         label='AI Doc - Coverage Check'
         description='Returns coverage stats, borrower name, stored review JSON, and party-aware rows for files still needing review.'
@@ -67,10 +69,13 @@ public with sharing class AIDocCoverageCheck {
 
     private static CoverageContext buildContext(Set<Id> applicationIds) {
         CoverageContext context = new CoverageContext();
+        context.fallbackCategoryNames = loadFallbackCategoryNames();
         context.categoriesById = loadCategories(applicationIds);
         indexCategories(context);
         context.docIdsByCatId =
-            AIDocReviewFileSelector.selectCurrentContentDocumentIdsByCategoryUserMode(context.categoriesById.keySet());
+            AIDocReviewFileSelector.selectCurrentContentDocumentIdsByCategoryUserMode(
+                collectReviewableCategoryIds(context.categoriesById.values())
+            );
         AIDocReviewPartyResolver.PartyIndex partyIndex = AIDocReviewPartyResolver.load(applicationIds);
         context.partiesByApp = partyIndex.partiesByApp;
         context.partyByAccountId = partyIndex.partyByAccountId;
@@ -103,6 +108,47 @@ public with sharing class AIDocCoverageCheck {
         }
     }
 
+    private static Set<Id> collectReviewableCategoryIds(
+        List<clcommon__Document_Category__c> categories
+    ) {
+        Set<Id> categoryIds = new Set<Id>();
+        for (clcommon__Document_Category__c category : categories) {
+            if (!isExcludedReviewCategory(category)) {
+                categoryIds.add(category.Id);
+            }
+        }
+        return categoryIds;
+    }
+
+    private static Boolean isExcludedReviewCategory(clcommon__Document_Category__c category) {
+        String categoryName = category?.clcommon__Category_Name__c;
+        return categoryName != null
+            && EXCLUDED_REVIEW_CATEGORY_NAME.equalsIgnoreCase(categoryName.trim());
+    }
+
+    private static Set<String> loadFallbackCategoryNames() {
+        Set<String> categoryNames = new Set<String>();
+        for (Document_Intake_Config__mdt config : Document_Intake_Config__mdt.getAll().values()) {
+            if (config.Is_Active__c != true || String.isBlank(config.Default_Category_Name__c)) {
+                continue;
+            }
+            categoryNames.add(config.Default_Category_Name__c.trim().toLowerCase());
+        }
+        if (categoryNames.isEmpty()) {
+            categoryNames.add('others');
+        }
+        return categoryNames;
+    }
+
+    private static Boolean isFallbackReviewCategory(
+        clcommon__Document_Category__c category,
+        Set<String> fallbackCategoryNames
+    ) {
+        String categoryName = category?.clcommon__Category_Name__c;
+        return categoryName != null
+            && fallbackCategoryNames.contains(categoryName.trim().toLowerCase());
+    }
+
     private static String nullToEmpty(String s) {
         return s == null ? '' : s;
     }
@@ -122,7 +168,12 @@ public with sharing class AIDocCoverageCheck {
             ? context.catsByApp.get(req.applicationId)
             : new List<clcommon__Document_Category__c>();
 
-        ResponseBuildState state = new ResponseBuildState(res, coverage, context);
+        ResponseBuildState state = new ResponseBuildState(
+            res,
+            coverage,
+            context,
+            req.includeFallbackCategory == true
+        );
         for (clcommon__Document_Category__c c : cats) {
             addCategoryToResponse(c, state);
         }
@@ -166,7 +217,10 @@ public with sharing class AIDocCoverageCheck {
         clcommon__Document_Category__c category,
         ResponseBuildState state
     ) {
-        if (state.context.groupCatIds.contains(category.Id)) {
+        if (isExcludedReviewCategory(category)
+            || (!state.includeFallbackCategory
+                && isFallbackReviewCategory(category, state.context.fallbackCategoryNames))
+            || state.context.groupCatIds.contains(category.Id)) {
             return;
         }
 
@@ -234,6 +288,11 @@ public with sharing class AIDocCoverageCheck {
                            description='The Id of the genesis__Applications__c record to check'
                            required=true)
         public Id applicationId;
+
+        @InvocableVariable(label='Include Fallback Category'
+                           description='When true, includes files in the configured fallback category in coverage and AI review.'
+                           required=false)
+        public Boolean includeFallbackCategory;
     }
 
     public class Response {
@@ -291,6 +350,7 @@ public with sharing class AIDocCoverageCheck {
             new Map<Id, Map<String, List<String>>>();
         public Map<Id, AIDocReviewPartyResolver.PartyContext> partyByAccountId =
             new Map<Id, AIDocReviewPartyResolver.PartyContext>();
+        public Set<String> fallbackCategoryNames = new Set<String>();
     }
 
     private class CoverageAccumulator {
@@ -322,11 +382,18 @@ public with sharing class AIDocCoverageCheck {
         public Response res;
         public CoverageAccumulator coverage;
         public CoverageContext context;
+        public Boolean includeFallbackCategory;
 
-        public ResponseBuildState(Response res, CoverageAccumulator coverage, CoverageContext context) {
+        public ResponseBuildState(
+            Response res,
+            CoverageAccumulator coverage,
+            CoverageContext context,
+            Boolean includeFallbackCategory
+        ) {
             this.res = res;
             this.coverage = coverage;
             this.context = context;
+            this.includeFallbackCategory = includeFallbackCategory;
         }
     }
 

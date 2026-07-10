@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Document_Type__c</fullName>
+    <description>Document type code produced by the splitter/classification step.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Upper-snake-case document type detected for this split output, such as BANK_STATEMENT or W2.</inlineHelpText>
+    <label>Document Type</label>
+    <length>100</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>
