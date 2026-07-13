@@ -28,7 +28,7 @@ private class AIDocSplitClassifierServiceTest {
     static void shouldParseAndShiftWhenPromptReturnsValidJson() {
         AIDocSplitClassifierService.testStubResponse =
             '[{"document_type":"DRIVERS_LICENSE","source_institution":null,"named_party":"John Smith","instance_label":"John CA DL","pages":[1,3]},'
-            + '{"document_type":"BANK_STATEMENT","source_institution":"Chase","named_party":"John Smith","instance_label":"Chase 2026-04","pages":[2]}]';
+            + '{"document_type":"BANK_STATEMENT","source_institution":"Chase","named_party":"John Smith","instance_label":"Chase 2026-04","pages":[2,20]}]';
 
         Id jobId;
         Test.startTest();
@@ -39,7 +39,7 @@ private class AIDocSplitClassifierServiceTest {
         Test.stopTest();
 
         Split_Job__c after = [
-            SELECT Raw_Segments_JSON__c, LLM_Response_Audit_JSON__c, Chunks_Completed__c
+            SELECT Raw_Segments_JSON__c, LLM_Response_Audit_JSON__c, Chunks_Completed__c, Total_Pages__c
             FROM Split_Job__c
             WHERE Id = :jobId
         ];
@@ -49,6 +49,7 @@ private class AIDocSplitClassifierServiceTest {
         Assert.isTrue(after.LLM_Response_Audit_JSON__c.contains('DRIVERS_LICENSE'),
             'LLM response audit should include the pre-parse model response');
         Assert.areEqual(1, after.Chunks_Completed__c, 'Counter incremented');
+        Assert.areEqual(10, after.Total_Pages__c, 'LLM page claims must not overwrite the source page count');
 
         List<Object> accumulator = (List<Object>) JSON.deserializeUntyped(after.Raw_Segments_JSON__c);
         Assert.areEqual(2, accumulator.size(), 'Two segments in accumulator');
@@ -66,8 +67,9 @@ private class AIDocSplitClassifierServiceTest {
         Assert.areEqual('BANK_STATEMENT', (String) second.get('documentType'));
         Assert.areEqual('Chase', (String) second.get('sourceInstitution'));
         List<Object> secondPages = (List<Object>) second.get('pages');
-        Assert.areEqual(1, secondPages.size());
+        Assert.areEqual(2, secondPages.size());
         Assert.areEqual(6, (Integer) secondPages[0], 'chunk-local 2 + shift(4) = 6');
+        Assert.areEqual(24, (Integer) secondPages[1], 'Out-of-range claims remain raw for the merger to ignore');
     }
 
     @IsTest

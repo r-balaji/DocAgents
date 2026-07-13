@@ -480,28 +480,17 @@ public with sharing class SplitJobService {
     private static void runMergeAndPrepareForSplit(Split_Job__c job) {
         List<DocSegment> raw = deserializeRawSegments(job.Raw_Segments_JSON__c);
 
-        // Derive the real page count from what the LLM actually returned, not
-        // from whatever Total_Pages__c was at job creation. The headless single-
-        // call path creates the job with totalPages=1 as a placeholder (we
-        // don't know the real count until the LLM responds). The merger uses
-        // totalPages to clamp pages, so trusting the placeholder silently
-        // drops every page > 1.
-        Integer derivedTotal = job.Total_Pages__c == null ? 0 : ((Integer) job.Total_Pages__c);
-        for (DocSegment s : raw) {
-            if (s.pages == null) continue;
-            for (Integer p : s.pages) {
-                if (p != null && p > derivedTotal) derivedTotal = p;
-            }
+        Integer totalPages = job.Total_Pages__c == null ? 0 : ((Integer) job.Total_Pages__c);
+        if (totalPages < 1) {
+            throw new SplitJobException('Total_Pages__c must contain the PDF service or browser page count.');
         }
-        if (derivedTotal < 1) derivedTotal = 1;
 
-        List<DocSegment> merged = SegmentMerger.mergeSegments(raw, derivedTotal, FALLBACK_TYPE);
+        List<DocSegment> merged = SegmentMerger.mergeSegments(raw, totalPages, FALLBACK_TYPE);
         String mergedJson = JSON.serialize(merged);
 
         Split_Job__c statusUpdate = new Split_Job__c(
             Id = job.Id,
             Status__c = 'Splitting',
-            Total_Pages__c = derivedTotal,
             Merged_Segments_JSON__c = mergedJson.left(32768)
         );
         Database.update(statusUpdate, AccessLevel.USER_MODE);
@@ -509,7 +498,7 @@ public with sharing class SplitJobService {
         publishUpdate(job.Id, 'Splitting', mergedJson, 'Merged into ' + merged.size() + ' segments.');
 
         System.debug(LoggingLevel.INFO, 'runMergeAndPrepareForSplit jobId=' + job.Id
-            + ' derivedTotalPages=' + derivedTotal
+            + ' totalPages=' + totalPages
             + ' rawCount=' + raw.size()
             + ' mergedCount=' + merged.size());
 

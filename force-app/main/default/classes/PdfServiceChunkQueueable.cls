@@ -1,12 +1,10 @@
 /**
- * Queueable that asks the self-hosted pdf-lib service to chunk a > 10 MB
- * source PDF, then starts a Batch Apex classifier with one chunk per batch
- * transaction.
+ * Queueable that asks the self-hosted pdf-lib service for the source page count
+ * and size-based chunks, then starts a Batch Apex classifier with one chunk per
+ * batch transaction.
  *
  * Only used on the headless path; the LWC path still does chunking client-side
- * via pdf-lib in the browser. Single-call (<= 10 MB) headless jobs skip this
- * Queueable entirely -- they start a one-item classification Batch against
- * the source ContentDocument.
+ * via pdf-lib in the browser. Files <= 10 MB normally return one chunk.
  */
 public with sharing class PdfServiceChunkQueueable implements Queueable, Database.AllowsCallouts {
 
@@ -57,6 +55,9 @@ public with sharing class PdfServiceChunkQueueable implements Queueable, Databas
                 PdfServiceChunkClassifyBatch.fromChunkRecords(res.chunks);
             if (chunkWork.isEmpty()) {
                 throw new SplitJobException('chunks is required.');
+            }
+            if (res.totalPages == null || res.totalPages < 1) {
+                throw new SplitJobException('The PDF service did not return a valid page count.');
             }
             SplitJobService.linkTempChunkFiles(jobId, chunkWork);
 

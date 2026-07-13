@@ -188,7 +188,7 @@ public with sharing class AIDocSplitClassifierService {
             return;
         }
         Split_Job__c job = [
-            SELECT Id, Raw_Segments_JSON__c, Total_Pages__c
+            SELECT Id, Raw_Segments_JSON__c
             FROM Split_Job__c
             WHERE Id = :jobId
             WITH USER_MODE
@@ -198,15 +198,7 @@ public with sharing class AIDocSplitClassifierService {
             ? new List<Object>()
             : (List<Object>) JSON.deserializeUntyped(job.Raw_Segments_JSON__c);
 
-        Integer maxPageInChunk = 0;
         for (DocSegment segment : segments) {
-            if (segment.pages != null) {
-                for (Integer page : segment.pages) {
-                    if (page != null && page > maxPageInChunk) {
-                        maxPageInChunk = page;
-                    }
-                }
-            }
             accumulator.add(new Map<String, Object>{
                 'documentType' => segment.documentType,
                 'sourceInstitution' => segment.sourceInstitution,
@@ -217,10 +209,6 @@ public with sharing class AIDocSplitClassifierService {
         }
 
         job.Raw_Segments_JSON__c = JSON.serialize(accumulator).left(32768);
-        Integer currentTotal = job.Total_Pages__c == null ? 0 : ((Integer) job.Total_Pages__c);
-        if (maxPageInChunk > currentTotal) {
-            job.Total_Pages__c = maxPageInChunk;
-        }
         Database.update(job, AccessLevel.USER_MODE);
     }
 }

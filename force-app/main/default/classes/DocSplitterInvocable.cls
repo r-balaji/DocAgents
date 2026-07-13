@@ -3,15 +3,9 @@
  *
  * Callable from Flow / Process / record-triggered automation / REST custom
  * endpoints. Given a source ContentDocument and (optionally) a target record
- * to link outputs to, it creates the Split_Job__c and kicks off the right
- * async path:
- *
- *   - File size <= 10 MB -> start a one-item classification Batch with the
- *     source itself acting as "chunk 0". No service call for chunking. The
- *     final binary split runs via PdfServiceSplitQueueable when the merge completes.
- *   - File size > 10 MB → enqueue PdfServiceChunkQueueable, which calls the
- *     self-hosted pdf-lib service to split into chunks, then starts the same
- *     classification Batch. Same finalize path.
+ * to link outputs to, it creates the Split_Job__c and asks the PDF service to
+ * return the authoritative source page count and size-based chunks. A file
+ * within the 10 MB threshold produces one classification chunk.
  *
  * Returns the Split_Job__c Id so the caller can correlate / poll status.
  */
@@ -43,7 +37,7 @@ public with sharing class DocSplitterInvocable {
         @InvocableVariable(label='Is Single Call' description='True if the file fits in one LLM call (<= 10 MB). False if the service was asked to chunk first.')
         public Boolean isSingleCall;
 
-        @InvocableVariable(label='Total Pages' description='Page count of the source PDF (only populated for the single-call path; large files have it filled in after the service responds).')
+        @InvocableVariable(label='Total Pages' description='Page count is stored on the split job after the PDF service prepares the source file.')
         public Integer totalPages;
     }
 
@@ -68,7 +62,7 @@ public with sharing class DocSplitterInvocable {
                 throw new SplitJobException('sourceContentDocumentId is required.');
             }
 
-            // Resolve latest ContentVersion to read size + page count via Apex callout-free path.
+            // Resolve latest ContentVersion to choose one or multiple LLM chunks.
             ContentVersion cv = [SELECT Id, ContentSize, ContentDocumentId
                                  FROM ContentVersion
                                  WHERE ContentDocumentId = :req.sourceContentDocumentId
@@ -81,50 +75,19 @@ public with sharing class DocSplitterInvocable {
 
             Boolean useSingleCall = !forceChunkedPathForTest && cv.ContentSize <= SINGLE_CALL_THRESHOLD_BYTES;
 
-            if (useSingleCall) {
-                // We don't know exact page count without parsing the PDF; the service-side path
-                // also doesn't need it up front (classification doesn't use Total_Pages__c
-                // until merge, and the merger reads it directly). Default to 1; the LLM
-                // returns absolute page numbers, and the merger clamps against Total_Pages__c.
-                // For accurate page count we'd need to call /chunks even for small files, which
-                // is wasteful. Instead, we set Total_Pages__c after the LLM returns by reading
-                // the max page from segments — but that requires SplitJobService support. For
-                // v1 we set Total_Pages__c to the LLM's max claimed page during merge.
-                //
-                // Use a placeholder totalPages=1 and chunkCount=1; SegmentMerger will accept
-                // whatever pages the LLM emits and clamp them, so the placeholder is harmless
-                // as long as we update Total_Pages__c at merge time.
-
-                Id jobId = SplitJobService.startJob(
-                    req.sourceContentDocumentId, libraryId, folderId, req.targetRecordId,
-                    1, 1, true
-                );
-                if (!Test.isRunningTest()) {
-                    SplitJobService.enqueueChunkClassifications(
-                        jobId,
-                        new List<PdfServiceChunkClassifyBatch.ChunkWork>{
-                            new PdfServiceChunkClassifyBatch.ChunkWork(0, req.sourceContentDocumentId, 1)
-                        }
-                    );
-                }
-                res.jobId = jobId;
-                res.isSingleCall = true;
-                res.totalPages = null;
-            } else {
-                // Chunked path. We don't know total pages yet; the service returns it.
-                // Create the job with chunkCount=0 (placeholder); PdfServiceChunkQueueable
-                // updates it once the service responds.
-                Id jobId = SplitJobService.startJob(
-                    req.sourceContentDocumentId, libraryId, folderId, req.targetRecordId,
-                    1, 1, true
-                );
-                if (!Test.isRunningTest()) {
-                    System.enqueueJob(new PdfServiceChunkQueueable(jobId));
-                }
-                res.jobId = jobId;
-                res.isSingleCall = false;
-                res.totalPages = null;
+            // Placeholder counts are replaced by PdfServiceChunkQueueable before
+            // classification. Using the same preparation path for every headless
+            // file prevents the LLM response from becoming the page-count source.
+            Id jobId = SplitJobService.startJob(
+                req.sourceContentDocumentId, libraryId, folderId, req.targetRecordId,
+                1, 1, true
+            );
+            if (!Test.isRunningTest()) {
+                System.enqueueJob(new PdfServiceChunkQueueable(jobId));
             }
+            res.jobId = jobId;
+            res.isSingleCall = useSingleCall;
+            res.totalPages = null;
         } catch (Exception e) {
             throw new AuraHandledException(e.getMessage());
         }
