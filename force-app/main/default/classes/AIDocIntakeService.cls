@@ -19,6 +19,7 @@ public with sharing class AIDocIntakeService {
     private static final Integer MAX_FILES_PER_SUBMISSION = 20;
     private static final Integer MAX_CLIENT_SUBMISSION_ID_LENGTH = 200;
     private static final Set<String> ALLOWED_SOURCES = new Set<String>{ 'PORTAL', 'API', 'INTERNAL' };
+    private static final String INTERNAL_SOURCE = 'INTERNAL';
 
     @TestVisible
     private static Id testLibraryIdOverride;
@@ -73,6 +74,25 @@ public with sharing class AIDocIntakeService {
         }
 
         return acceptSubmission(applicationId, clientSubmissionId, internalRequest);
+    }
+
+    /**
+     * Accepts a PDF uploaded from the Application record page and starts the same
+     * asynchronous intake pipeline used by the portal REST API.
+     * @param applicationId Application receiving the uploaded document.
+     * @param contentDocumentId Existing Salesforce ContentDocument created by lightning-file-upload.
+     * @return Document intake job Id.
+     * @throws AuraHandledException when the file cannot be staged or intake cannot start.
+     */
+    @AuraEnabled
+    public static Id acceptApplicationUpload(Id applicationId, Id contentDocumentId) {
+        try {
+            return acceptExistingApplicationUpload(applicationId, contentDocumentId).jobId;
+        } catch (IntakeException e) {
+            throw new AuraHandledException(e.getMessage());
+        } catch (Exception e) {
+            throw new AuraHandledException('Unable to start application document intake.');
+        }
     }
 
     /**
@@ -513,6 +533,103 @@ public with sharing class AIDocIntakeService {
 
     private static String computeBlobHash(Blob body) {
         return EncodingUtil.convertToHex(Crypto.generateDigest('SHA-256', body));
+    }
+
+    private static SubmissionResult acceptExistingApplicationUpload(
+        Id applicationId,
+        Id contentDocumentId
+    ) {
+        if (contentDocumentId == null) {
+            throw error(400, 'ContentDocument Id is required.');
+        }
+
+        validateApplication(applicationId);
+        ContentVersion version = loadLatestUploadedVersion(contentDocumentId);
+        String fileName = buildContentVersionFileName(version);
+        Id libraryId = resolveConfiguredLibraryId(INTERNAL_SOURCE);
+        Id targetFolderId = resolveApplicationFolderId(
+            INTERNAL_SOURCE,
+            libraryId,
+            applicationId
+        );
+
+        addExistingFileToLibrary(libraryId, contentDocumentId);
+        AIDocIntakeFolderService.moveDocumentToFolder(contentDocumentId, targetFolderId);
+
+        SubmissionRequest request = new SubmissionRequest();
+        request.source = INTERNAL_SOURCE;
+        request.libraryId = String.valueOf(libraryId);
+        request.targetFolderId = targetFolderId == null ? null : String.valueOf(targetFolderId);
+
+        SubmissionFileRequest file = new SubmissionFileRequest();
+        file.contentDocumentId = String.valueOf(contentDocumentId);
+        file.fileName = fileName;
+        file.contentHash = version.Checksum;
+        request.files = new List<SubmissionFileRequest>{ file };
+
+        return acceptSubmission(
+            applicationId,
+            'internal-' + String.valueOf(contentDocumentId),
+            request
+        );
+    }
+
+    private static ContentVersion loadLatestUploadedVersion(Id contentDocumentId) {
+        List<ContentVersion> versions = [
+            SELECT Id, ContentDocumentId, Title, FileExtension, Checksum
+            FROM ContentVersion
+            WHERE ContentDocumentId = :contentDocumentId
+            AND IsLatest = true
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (versions.isEmpty()) {
+            throw error(404, 'Uploaded document was not found or is not accessible.');
+        }
+        if (!'pdf'.equalsIgnoreCase(versions[0].FileExtension)) {
+            throw error(400, 'Only PDF application documents are supported.');
+        }
+        return versions[0];
+    }
+
+    private static String buildContentVersionFileName(ContentVersion version) {
+        String title = String.isBlank(version.Title) ? 'Application_Document' : version.Title.trim();
+        String extension = version.FileExtension;
+        if (!String.isBlank(extension)
+            && !title.toLowerCase().endsWith('.' + extension.toLowerCase())) {
+            title += '.' + extension.toLowerCase();
+        }
+        return normalizeFileName(title);
+    }
+
+    private static void addExistingFileToLibrary(Id libraryId, Id contentDocumentId) {
+        if (Test.isRunningTest() && testBypassLibraryMembership) {
+            return;
+        }
+
+        List<ContentWorkspaceDoc> existing = [
+            SELECT Id
+            FROM ContentWorkspaceDoc
+            WHERE ContentWorkspaceId = :libraryId
+            AND ContentDocumentId = :contentDocumentId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (!existing.isEmpty()) {
+            return;
+        }
+
+        try {
+            Database.insert(
+                new ContentWorkspaceDoc(
+                    ContentWorkspaceId = libraryId,
+                    ContentDocumentId = contentDocumentId
+                ),
+                AccessLevel.USER_MODE
+            );
+        } catch (DmlException e) {
+            throw error(500, 'Unable to add the uploaded file to the configured intake library.');
+        }
     }
 
     private static Id createUploadedFile(Id libraryId, Id folderId, String fileName, Blob fileBody) {

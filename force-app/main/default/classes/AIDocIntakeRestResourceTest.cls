@@ -179,6 +179,63 @@ private class AIDocIntakeRestResourceTest {
     }
 
     @IsTest
+    static void shouldAcceptExistingApplicationUpload() {
+        genesis__Applications__c app = AIDocTestFactory.createApplication(true);
+        configureLibraryLookupForTest();
+        Id contentDocumentId = createContentDocument('application_upload');
+
+        Test.startTest();
+        Id intakeJobId = AIDocIntakeService.acceptApplicationUpload(app.Id, contentDocumentId);
+        Test.stopTest();
+
+        Document_Intake_Job__c job = [
+            SELECT Application__c, Source__c, Status__c, Target_Folder_Id__c
+            FROM Document_Intake_Job__c
+            WHERE Id = :intakeJobId
+        ];
+        Document_Intake_File__c fileItem = loadOnlyFile(intakeJobId);
+        Assert.areEqual(app.Id, job.Application__c, 'uploaded file should use the current application');
+        Assert.areEqual('INTERNAL', job.Source__c, 'record-page upload should be identified as internal');
+        Assert.areEqual(String.valueOf(fakeFolderId()), job.Target_Folder_Id__c,
+            'record-page upload should use the configured application folder');
+        Assert.areEqual(String.valueOf(contentDocumentId), fileItem.ContentDocument_Id__c,
+            'existing ContentDocument should enter the intake pipeline without being copied');
+        Assert.areEqual('application_upload.pdf', fileItem.File_Name__c,
+            'intake should retain the uploaded PDF file name');
+        Assert.areEqual(AIDocIntakeService.FILE_STATUS_SPLIT_QUEUED, fileItem.Status__c,
+            'record-page upload should start the headless splitter');
+    }
+
+    @IsTest
+    static void shouldRejectApplicationUploadWhenContentDocumentMissing() {
+        genesis__Applications__c app = AIDocTestFactory.createApplication(true);
+
+        Test.startTest();
+        try {
+            AIDocIntakeService.acceptApplicationUpload(app.Id, null);
+            Assert.fail('Missing ContentDocument Id should be rejected');
+        } catch (AuraHandledException e) {
+            Assert.isNotNull(e, 'LWC entry point should return a handled error');
+        }
+        Test.stopTest();
+    }
+
+    @IsTest
+    static void shouldRejectApplicationUploadWhenFileIsNotPdf() {
+        genesis__Applications__c app = AIDocTestFactory.createApplication(true);
+        Id contentDocumentId = createContentDocument('application_upload_image', 'png');
+
+        Test.startTest();
+        try {
+            AIDocIntakeService.acceptApplicationUpload(app.Id, contentDocumentId);
+            Assert.fail('Non-PDF application upload should be rejected');
+        } catch (AuraHandledException e) {
+            Assert.isNotNull(e, 'LWC entry point should return a handled error');
+        }
+        Test.stopTest();
+    }
+
+    @IsTest
     static void shouldMarkIntakeMappingWhenSplitCompletes() {
         genesis__Applications__c app = AIDocTestFactory.createApplication(true);
         configureLibraryLookupForTest();
@@ -431,9 +488,13 @@ private class AIDocIntakeRestResourceTest {
     }
 
     private static Id createContentDocument(String title) {
+        return createContentDocument(title, 'pdf');
+    }
+
+    private static Id createContentDocument(String title, String extension) {
         ContentVersion version = new ContentVersion(
             Title = title,
-            PathOnClient = title + '.pdf',
+            PathOnClient = title + '.' + extension,
             VersionData = Blob.valueOf('PDF-BYTES-' + title),
             IsMajorVersion = true
         );
