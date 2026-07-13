@@ -104,18 +104,39 @@ public with sharing class AIDocIntakeCategoryService {
         if (categoryId == null || contentDocumentId == null) {
             return;
         }
-        ContentVersion latestVersion = latestContentVersion(contentDocumentId);
-        if (latestVersion == null) {
+
+        attachDocumentsToCategories(new Map<Id, Set<Id>>{
+            contentDocumentId => new Set<Id>{ categoryId }
+        });
+    }
+
+    /**
+     * Attaches multiple files to their mapped categories with shared queries and bulk DML.
+     * @param categoryIdsByContentDocumentId Category ids grouped by ContentDocument id.
+     */
+    public static void attachDocumentsToCategories(
+        Map<Id, Set<Id>> categoryIdsByContentDocumentId
+    ) {
+        Map<Id, Set<Id>> normalizedMappings = normalizeMappings(categoryIdsByContentDocumentId);
+        if (normalizedMappings.isEmpty()) {
             return;
         }
 
-        Id contentDocumentLinkId = ensureContentDocumentLink(categoryId, contentDocumentId);
-        ensureCategoryAssociation(
-            categoryId,
-            contentDocumentId,
-            latestVersion.Id,
-            contentDocumentLinkId,
-            AIDocFileNameUtil.fileNameFor(latestVersion.Title, latestVersion.FileExtension)
+        Set<Id> contentDocumentIds = normalizedMappings.keySet();
+        Set<Id> categoryIds = collectCategoryIds(normalizedMappings);
+        Map<Id, ContentVersion> latestVersionsByDocumentId = latestContentVersions(contentDocumentIds);
+        Map<String, Id> linkIdsByPair = existingContentDocumentLinkIds(categoryIds, contentDocumentIds);
+        insertMissingContentDocumentLinks(
+            normalizedMappings,
+            latestVersionsByDocumentId,
+            linkIdsByPair
+        );
+        saveCategoryAssociations(
+            normalizedMappings,
+            latestVersionsByDocumentId,
+            linkIdsByPair,
+            categoryIds,
+            contentDocumentIds
         );
     }
 
@@ -141,73 +162,183 @@ public with sharing class AIDocIntakeCategoryService {
         return definitionIdsByName;
     }
 
-    private static ContentVersion latestContentVersion(Id contentDocumentId) {
-        List<ContentVersion> versions = [
-            SELECT Id, Title, FileExtension
-            FROM ContentVersion
-            WHERE ContentDocumentId = :contentDocumentId
-            AND IsLatest = true
-            LIMIT 1
-        ];
-        return versions.isEmpty() ? null : versions[0];
-    }
-
-    private static Id ensureContentDocumentLink(Id categoryId, Id contentDocumentId) {
-        List<ContentDocumentLink> existing = [
-            SELECT Id
-            FROM ContentDocumentLink
-            WHERE LinkedEntityId = :categoryId
-            AND ContentDocumentId = :contentDocumentId
-            LIMIT 1
-        ];
-        if (!existing.isEmpty()) {
-            return existing[0].Id;
-        }
-
-        ContentDocumentLink link = new ContentDocumentLink(
-            LinkedEntityId = categoryId,
-            ContentDocumentId = contentDocumentId,
-            ShareType = 'V',
-            Visibility = 'AllUsers'
-        );
-        insert link;
-        return link.Id;
-    }
-
-    private static void ensureCategoryAssociation(
-        Id categoryId,
-        Id contentDocumentId,
-        Id contentVersionId,
-        Id contentDocumentLinkId,
-        String fileName
+    private static Map<Id, Set<Id>> normalizeMappings(
+        Map<Id, Set<Id>> categoryIdsByContentDocumentId
     ) {
-        String contentDocumentIdText = String.valueOf(contentDocumentId);
-        List<clcommon__Category_Attachment_Association__c> existing = [
-            SELECT Id, Name, clcommon__Status__c
-            FROM clcommon__Category_Attachment_Association__c
-            WHERE clcommon__Document_Category__c = :categoryId
-            AND clcommon__Content_Document_Id__c = :contentDocumentIdText
-            LIMIT 1
-        ];
-        String associationName = AIDocFileNameUtil.associationNameFor(fileName);
-        if (!existing.isEmpty()) {
-            clcommon__Category_Attachment_Association__c association = existing[0];
-            if (association.clcommon__Status__c != STATUS_SUBMITTED || association.Name != associationName) {
-                association.clcommon__Status__c = STATUS_SUBMITTED;
-                association.Name = associationName;
-                update association;
+        Map<Id, Set<Id>> normalized = new Map<Id, Set<Id>>();
+        if (categoryIdsByContentDocumentId == null || categoryIdsByContentDocumentId.isEmpty()) {
+            return normalized;
+        }
+        for (Id contentDocumentId : categoryIdsByContentDocumentId.keySet()) {
+            Set<Id> requestedCategoryIds = categoryIdsByContentDocumentId.get(contentDocumentId);
+            if (contentDocumentId == null || requestedCategoryIds == null || requestedCategoryIds.isEmpty()) {
+                continue;
             }
+            Set<Id> categoryIds = new Set<Id>();
+            for (Id categoryId : requestedCategoryIds) {
+                if (categoryId != null) {
+                    categoryIds.add(categoryId);
+                }
+            }
+            if (!categoryIds.isEmpty()) {
+                normalized.put(contentDocumentId, categoryIds);
+            }
+        }
+        return normalized;
+    }
+
+    private static Set<Id> collectCategoryIds(Map<Id, Set<Id>> mappings) {
+        Set<Id> categoryIds = new Set<Id>();
+        for (Set<Id> mappedCategoryIds : mappings.values()) {
+            categoryIds.addAll(mappedCategoryIds);
+        }
+        return categoryIds;
+    }
+
+    private static Map<Id, ContentVersion> latestContentVersions(Set<Id> contentDocumentIds) {
+        Map<Id, ContentVersion> versionsByDocumentId = new Map<Id, ContentVersion>();
+        for (ContentVersion version : [
+            SELECT Id, ContentDocumentId, Title, FileExtension
+            FROM ContentVersion
+            WHERE ContentDocumentId IN :contentDocumentIds
+            AND IsLatest = true
+        ]) {
+            versionsByDocumentId.put(version.ContentDocumentId, version);
+        }
+        return versionsByDocumentId;
+    }
+
+    private static Map<String, Id> existingContentDocumentLinkIds(
+        Set<Id> categoryIds,
+        Set<Id> contentDocumentIds
+    ) {
+        Map<String, Id> linkIdsByPair = new Map<String, Id>();
+        for (ContentDocumentLink link : [
+            SELECT Id, LinkedEntityId, ContentDocumentId
+            FROM ContentDocumentLink
+            WHERE LinkedEntityId IN :categoryIds
+            AND ContentDocumentId IN :contentDocumentIds
+        ]) {
+            linkIdsByPair.put(pairKey(link.LinkedEntityId, link.ContentDocumentId), link.Id);
+        }
+        return linkIdsByPair;
+    }
+
+    private static void insertMissingContentDocumentLinks(
+        Map<Id, Set<Id>> mappings,
+        Map<Id, ContentVersion> latestVersionsByDocumentId,
+        Map<String, Id> linkIdsByPair
+    ) {
+        List<ContentDocumentLink> linksToInsert = new List<ContentDocumentLink>();
+        List<String> keysToInsert = new List<String>();
+        for (Id contentDocumentId : mappings.keySet()) {
+            if (!latestVersionsByDocumentId.containsKey(contentDocumentId)) {
+                continue;
+            }
+            for (Id categoryId : mappings.get(contentDocumentId)) {
+                String key = pairKey(categoryId, contentDocumentId);
+                if (linkIdsByPair.containsKey(key)) {
+                    continue;
+                }
+                linksToInsert.add(new ContentDocumentLink(
+                    LinkedEntityId = categoryId,
+                    ContentDocumentId = contentDocumentId,
+                    ShareType = 'V',
+                    Visibility = 'AllUsers'
+                ));
+                keysToInsert.add(key);
+            }
+        }
+        if (linksToInsert.isEmpty()) {
             return;
         }
 
-        insert new clcommon__Category_Attachment_Association__c(
-            Name = associationName,
-            clcommon__Document_Category__c = categoryId,
-            clcommon__Attachment_Id__c = contentDocumentLinkId,
-            clcommon__Content_Document_Id__c = contentDocumentIdText,
-            clcommon__Content_Version_Id__c = String.valueOf(contentVersionId),
-            clcommon__Status__c = STATUS_SUBMITTED
-        );
+        Database.insert(linksToInsert, AccessLevel.USER_MODE);
+        for (Integer i = 0; i < linksToInsert.size(); i++) {
+            linkIdsByPair.put(keysToInsert[i], linksToInsert[i].Id);
+        }
+    }
+
+    private static void saveCategoryAssociations(
+        Map<Id, Set<Id>> mappings,
+        Map<Id, ContentVersion> latestVersionsByDocumentId,
+        Map<String, Id> linkIdsByPair,
+        Set<Id> categoryIds,
+        Set<Id> contentDocumentIds
+    ) {
+        Set<String> contentDocumentIdTexts = new Set<String>();
+        for (Id contentDocumentId : contentDocumentIds) {
+            contentDocumentIdTexts.add(String.valueOf(contentDocumentId));
+        }
+
+        Map<String, clcommon__Category_Attachment_Association__c> associationsByPair =
+            new Map<String, clcommon__Category_Attachment_Association__c>();
+        for (clcommon__Category_Attachment_Association__c association : [
+            SELECT Id, Name, clcommon__Status__c, clcommon__Document_Category__c,
+                   clcommon__Content_Document_Id__c
+            FROM clcommon__Category_Attachment_Association__c
+            WHERE clcommon__Document_Category__c IN :categoryIds
+            AND clcommon__Content_Document_Id__c IN :contentDocumentIdTexts
+        ]) {
+            String key = pairKey(
+                association.clcommon__Document_Category__c,
+                (Id) association.clcommon__Content_Document_Id__c
+            );
+            if (!associationsByPair.containsKey(key)) {
+                associationsByPair.put(key, association);
+            }
+        }
+
+        List<clcommon__Category_Attachment_Association__c> associationsToInsert =
+            new List<clcommon__Category_Attachment_Association__c>();
+        List<clcommon__Category_Attachment_Association__c> associationsToUpdate =
+            new List<clcommon__Category_Attachment_Association__c>();
+        for (Id contentDocumentId : mappings.keySet()) {
+            ContentVersion version = latestVersionsByDocumentId.get(contentDocumentId);
+            if (version == null) {
+                continue;
+            }
+            String contentDocumentIdText = String.valueOf(contentDocumentId);
+            String associationName = AIDocFileNameUtil.associationNameFor(
+                AIDocFileNameUtil.fileNameFor(version.Title, version.FileExtension)
+            );
+            for (Id categoryId : mappings.get(contentDocumentId)) {
+                String key = pairKey(categoryId, contentDocumentId);
+                clcommon__Category_Attachment_Association__c existing = associationsByPair.get(key);
+                if (existing != null) {
+                    if (existing.clcommon__Status__c != STATUS_SUBMITTED || existing.Name != associationName) {
+                        existing.clcommon__Status__c = STATUS_SUBMITTED;
+                        existing.Name = associationName;
+                        associationsToUpdate.add(existing);
+                    }
+                    continue;
+                }
+
+                Id contentDocumentLinkId = linkIdsByPair.get(key);
+                if (contentDocumentLinkId == null) {
+                    continue;
+                }
+                associationsToInsert.add(new clcommon__Category_Attachment_Association__c(
+                    Name = associationName,
+                    clcommon__Document_Category__c = categoryId,
+                    clcommon__Attachment_Id__c = contentDocumentLinkId,
+                    clcommon__Content_Document_Id__c = contentDocumentIdText,
+                    clcommon__Content_Version_Id__c = String.valueOf(version.Id),
+                    clcommon__Status__c = STATUS_SUBMITTED
+                ));
+            }
+        }
+
+        if (!associationsToUpdate.isEmpty()) {
+            Database.update(associationsToUpdate, AccessLevel.USER_MODE);
+        }
+        if (!associationsToInsert.isEmpty()) {
+            Database.insert(associationsToInsert, AccessLevel.USER_MODE);
+        }
+    }
+
+    private static String pairKey(Id categoryId, Id contentDocumentId) {
+        return String.valueOf(categoryId) + ':' + String.valueOf(contentDocumentId);
     }
 
 }
