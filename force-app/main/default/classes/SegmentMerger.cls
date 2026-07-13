@@ -8,17 +8,17 @@
  *  1. Sanitize: drop entries with blank type, drop out-of-bounds pages.
  *  2. De-duplicate: if two segments claim the same page, the first claimant wins
  *     (vision prompts shouldn't produce duplicates, but defend against it).
- *  3. Fill gaps: any page in [1..totalPages] not claimed by any segment becomes
+ *  3. Group: combine segments with the same document type, party, and source.
+ *  4. Fill gaps: any page in [1..totalPages] not claimed by any segment becomes
  *     part of a single synthetic OTHER segment.
  *
- * Notable simplifications vs. the old range-based merger: the "merge adjacent
- * same-type" and "split conflicting overlap at midpoint" logic is gone — both
- * existed only because chunks classify in overlapping ranges. With page-list
- * segments, identity is explicit and the merger is just a coverage validator.
+ * Instance labels distinguish physical documents during classification, but do
+ * not create separate output files. For example, monthly statements from the
+ * same bank for the same party are consolidated into one output.
  *
  * No SOQL, no DML, no callouts.
  */
-public class SegmentMerger {
+public inherited sharing class SegmentMerger {
 
     private static final Integer MIN_PAGE = 1;
 
@@ -34,7 +34,7 @@ public class SegmentMerger {
      * @param totalPages  total page count of the source bundle (1-indexed). Null
      *                    or non-positive returns an empty list.
      * @param fallbackType Fallback document type code (OTHER).
-     * @return list of segments whose page lists collectively cover every page in
+     * @return grouped segments whose page lists collectively cover every page in
      *         [1..totalPages] exactly once.
      */
     public static List<DocSegment> mergeSegments(List<DocSegment> rawSegments, Integer totalPages, String fallbackType) {
@@ -43,7 +43,8 @@ public class SegmentMerger {
         }
 
         Set<Integer> claimed = new Set<Integer>();
-        List<DocSegment> out = new List<DocSegment>();
+        Map<String, DocSegment> segmentsByGroupKey = new Map<String, DocSegment>();
+        List<String> orderedGroupKeys = new List<String>();
 
         if (rawSegments != null) {
             for (DocSegment s : rawSegments) {
@@ -67,7 +68,7 @@ public class SegmentMerger {
                 if (validPages.isEmpty()) {
                     continue;
                 }
-                out.add(new DocSegment(s.documentType, s.sourceInstitution, s.namedParty, s.instanceLabel, validPages));
+                addToGroup(segmentsByGroupKey, orderedGroupKeys, s, validPages, fallbackType);
             }
         }
 
@@ -79,9 +80,73 @@ public class SegmentMerger {
             }
         }
         if (!orphans.isEmpty()) {
-            out.add(new DocSegment(fallbackType, null, null, null, orphans));
+            addToGroup(
+                segmentsByGroupKey,
+                orderedGroupKeys,
+                new DocSegment(fallbackType, null, null, null, orphans),
+                orphans,
+                fallbackType
+            );
+        }
+
+        List<DocSegment> out = new List<DocSegment>();
+        for (String groupKey : orderedGroupKeys) {
+            DocSegment segment = segmentsByGroupKey.get(groupKey);
+            segment.pages.sort();
+            out.add(segment);
         }
 
         return out;
+    }
+
+    private static void addToGroup(
+        Map<String, DocSegment> segmentsByGroupKey,
+        List<String> orderedGroupKeys,
+        DocSegment sourceSegment,
+        List<Integer> pages,
+        String fallbackType
+    ) {
+        Boolean isFallback = sameGroupValue(sourceSegment.documentType, fallbackType);
+        String groupKey = buildGroupKey(sourceSegment, isFallback);
+        if (!segmentsByGroupKey.containsKey(groupKey)) {
+            segmentsByGroupKey.put(groupKey, new DocSegment(
+                sourceSegment.documentType,
+                isFallback ? null : sourceSegment.sourceInstitution,
+                isFallback ? null : sourceSegment.namedParty,
+                isFallback ? null : sourceSegment.instanceLabel,
+                new List<Integer>(pages)
+            ));
+            orderedGroupKeys.add(groupKey);
+            return;
+        }
+
+        DocSegment grouped = segmentsByGroupKey.get(groupKey);
+        grouped.pages.addAll(pages);
+        grouped.instanceLabel = commonInstanceLabel(grouped.instanceLabel, sourceSegment.instanceLabel);
+    }
+
+    private static String buildGroupKey(DocSegment segment, Boolean isFallback) {
+        String typeKey = normalizeGroupValue(segment.documentType);
+        if (isFallback) {
+            return typeKey;
+        }
+        return typeKey
+            + '|' + normalizeGroupValue(segment.namedParty)
+            + '|' + normalizeGroupValue(segment.sourceInstitution);
+    }
+
+    private static String commonInstanceLabel(String currentLabel, String nextLabel) {
+        if (String.isBlank(currentLabel) || String.isBlank(nextLabel)) {
+            return null;
+        }
+        return sameGroupValue(currentLabel, nextLabel) ? currentLabel : null;
+    }
+
+    private static Boolean sameGroupValue(String left, String right) {
+        return normalizeGroupValue(left) == normalizeGroupValue(right);
+    }
+
+    private static String normalizeGroupValue(String value) {
+        return String.isBlank(value) ? '' : value.trim().toLowerCase().replaceAll('\\s+', ' ');
     }
 }

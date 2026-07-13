@@ -33,7 +33,7 @@ const EVENT_CHANNEL = '/event/Split_Job_Update__e';
 // PDFs are uploaded through Aura/Apex as base64 and need a smaller cap.
 const SINGLE_CALL_THRESHOLD_BYTES = 7.5 * 1024 * 1024;
 const BROWSER_CHUNK_TARGET_BYTES = 2 * 1024 * 1024;
-const BROWSER_OTHER_OUTPUT_TARGET_BYTES = 2 * 1024 * 1024;
+const BROWSER_OUTPUT_TARGET_BYTES = 2 * 1024 * 1024;
 const MAX_SAVE_APEX_PAYLOAD_CHARS = 3 * 1024 * 1024;
 
 export default class DocumentSplitter extends LightningElement {
@@ -257,7 +257,7 @@ export default class DocumentSplitter extends LightningElement {
             PDFDocument,
             sourceDoc,
             segmentsToSaveRequests(segments),
-            BROWSER_OTHER_OUTPUT_TARGET_BYTES,
+            BROWSER_OUTPUT_TARGET_BYTES,
             MAX_SAVE_APEX_PAYLOAD_CHARS
         );
         const typeBreakdownJson = buildTypeBreakdownJson(requests);

@@ -2,9 +2,9 @@
  * Unit tests for SegmentMerger.
  *
  * Pure logic — no SOQL, DML, or async, so no @TestSetup is needed.
- * With the page-list model the merger is a coverage validator: it sanitizes
- * inputs, de-duplicates overlapping page claims (first-claimant-wins), and
- * fills any unclaimed pages with a single OTHER segment.
+ * With the page-list model the merger sanitizes inputs, de-duplicates overlapping
+ * page claims (first-claimant-wins), groups matching type/party/source segments,
+ * and fills any unclaimed pages with a single OTHER segment.
  */
 @IsTest
 private class SegmentMergerTest {
@@ -100,6 +100,53 @@ private class SegmentMergerTest {
         Assert.areEqual(2, countByType(out, 'BANK_STATEMENT'),
             'Two distinct statements must remain as two separate segments');
         Assert.areEqual(0, countByType(out, 'OTHER'), 'No unclaimed pages → no fallback');
+    }
+
+    @IsTest
+    static void shouldMergeMonthlyStatements_WhenTypePartyAndSourceMatch() {
+        List<DocSegment> raw = new List<DocSegment>{
+            buildSegment('BANK_STATEMENT', 'Chase', 'Jimmy Doe', 'Chase 2026-01', new List<Integer>{1}),
+            buildSegment('BANK_STATEMENT', ' chase ', ' jimmy doe ', 'Chase 2026-02', new List<Integer>{2}),
+            buildSegment('BANK_STATEMENT', 'CHASE', 'JIMMY DOE', 'Chase 2026-03', new List<Integer>{3})
+        };
+
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 3, FALLBACK);
+        Test.stopTest();
+
+        Assert.areEqual(1, out.size(), 'Matching monthly statements should produce one output');
+        Assert.areEqual(new List<Integer>{1, 2, 3}, out[0].pages, 'All statement pages should be merged');
+        Assert.isNull(out[0].instanceLabel, 'A month-specific label should not describe a multi-month output');
+    }
+
+    @IsTest
+    static void shouldKeepStatementsSeparate_WhenPartiesDiffer() {
+        List<DocSegment> raw = new List<DocSegment>{
+            buildSegment('BANK_STATEMENT', 'Chase', 'Jimmy Doe', 'Jimmy Chase', new List<Integer>{1}),
+            buildSegment('BANK_STATEMENT', 'Chase', 'Ben Doe', 'Ben Chase', new List<Integer>{2})
+        };
+
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 2, FALLBACK);
+        Test.stopTest();
+
+        Assert.areEqual(2, countByType(out, 'BANK_STATEMENT'),
+            'The same bank must still produce separate outputs for different parties');
+    }
+
+    @IsTest
+    static void shouldMergeTaxReturns_WhenTypeAndPartyMatchWithoutSource() {
+        List<DocSegment> raw = new List<DocSegment>{
+            buildSegment('PERSONAL_TAX_RETURN_1040', null, 'Jimmy Doe', 'Jimmy 2024', new List<Integer>{1}),
+            buildSegment('PERSONAL_TAX_RETURN_1040', null, 'Jimmy Doe', 'Jimmy 2025', new List<Integer>{2})
+        };
+
+        Test.startTest();
+        List<DocSegment> out = SegmentMerger.mergeSegments(raw, 2, FALLBACK);
+        Test.stopTest();
+
+        Assert.areEqual(1, out.size(), 'Source-free documents should group by type and party');
+        Assert.areEqual(new List<Integer>{1, 2}, out[0].pages, 'Both tax-return pages should be retained');
     }
 
     // ----- De-duplication / overlap ------------------------------------------
