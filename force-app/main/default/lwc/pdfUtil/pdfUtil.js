@@ -238,10 +238,9 @@ export function buildTypeBreakdownJson(requests) {
 /**
  * Build browser-save payloads from logical split requests.
  *
- * Known document types must fit as a single output. For OTHER, the UI splits
- * a too-large catch-all into Other_1.pdf, Other_2.pdf, etc. using a raw PDF
- * byte cap before base64 encoding. Headless/service paths do not use this
- * helper, so their grouped OTHER output stays unchanged.
+ * The UI splits any oversized logical output into numbered files using a raw
+ * PDF byte cap before sending base64 through Apex. Headless/service paths do
+ * not use this helper, so their grouped outputs stay as one logical file.
  */
 export async function buildBrowserSaveRequests(PDFDocument, sourceDoc, requests, maxRawBytes, maxJsonChars) {
     const outputRequests = [];
@@ -256,24 +255,19 @@ export async function buildBrowserSaveRequests(PDFDocument, sourceDoc, requests,
             continue;
         }
 
-        if (req.documentType === 'OTHER') {
-            const splitOtherRequests = await splitOtherRequestForBrowserSave(
-                PDFDocument,
-                sourceDoc,
-                req,
-                maxRawBytes,
-                maxJsonChars
-            );
-            outputRequests.push(...splitOtherRequests);
-            continue;
-        }
-
-        throw new Error(`Split output ${output.request.fileName} is too large for browser save. Use Web/headless mode for this file.`);
+        const splitRequests = await splitRequestForBrowserSave(
+            PDFDocument,
+            sourceDoc,
+            req,
+            maxRawBytes,
+            maxJsonChars
+        );
+        outputRequests.push(...splitRequests);
     }
     return outputRequests;
 }
 
-async function splitOtherRequestForBrowserSave(PDFDocument, sourceDoc, req, maxRawBytes, maxJsonChars) {
+async function splitRequestForBrowserSave(PDFDocument, sourceDoc, req, maxRawBytes, maxJsonChars) {
     const pages = Array.isArray(req.pages) ? req.pages : [];
     const outputRequests = [];
     let currentPages = [];
@@ -281,7 +275,7 @@ async function splitOtherRequestForBrowserSave(PDFDocument, sourceDoc, req, maxR
 
     for (const page of pages) {
         const candidatePages = [...currentPages, page];
-        const candidateFileName = `Other_${outputRequests.length + 1}.pdf`;
+        const candidateFileName = numberedPartFileName(req.fileName, outputRequests.length + 1);
         const candidateOutput = await buildOutputCandidate(
             PDFDocument,
             sourceDoc,
@@ -307,7 +301,7 @@ async function splitOtherRequestForBrowserSave(PDFDocument, sourceDoc, req, maxR
             sourceDoc,
             req,
             currentPages,
-            `Other_${outputRequests.length + 1}.pdf`
+            numberedPartFileName(req.fileName, outputRequests.length + 1)
         );
 
         if (!fitsBrowserSave(currentOutput, maxRawBytes, maxJsonChars)) {
@@ -319,6 +313,15 @@ async function splitOtherRequestForBrowserSave(PDFDocument, sourceDoc, req, maxR
         outputRequests.push(currentOutput.request);
     }
     return outputRequests;
+}
+
+function numberedPartFileName(fileName, partNumber) {
+    const safeFileName = fileName || 'Document.pdf';
+    const extensionIndex = safeFileName.lastIndexOf('.');
+    if (extensionIndex <= 0) {
+        return `${safeFileName}_${partNumber}`;
+    }
+    return `${safeFileName.substring(0, extensionIndex)}_${partNumber}${safeFileName.substring(extensionIndex)}`;
 }
 
 async function buildOutputCandidate(PDFDocument, sourceDoc, req, pages, fileName) {

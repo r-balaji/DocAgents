@@ -54,6 +54,45 @@ private class AIDocIntakeCategoryServiceTest {
             'product category association should display the file name');
     }
 
+    @IsTest
+    static void shouldAttachMultipleDocumentsWithBulkPlacement() {
+        genesis__Applications__c app = AIDocTestFactory.createApplication(true);
+        List<clcommon__Document_Category__c> categories =
+            AIDocTestFactory.createCategories(app.Id, 2, true);
+        List<Id> contentDocumentIds = createContentDocuments(12);
+        Map<Id, Set<Id>> categoryIdsByContentDocumentId = new Map<Id, Set<Id>>();
+        for (Integer i = 0; i < contentDocumentIds.size(); i++) {
+            categoryIdsByContentDocumentId.put(
+                contentDocumentIds[i],
+                new Set<Id>{ categories[Math.mod(i, categories.size())].Id }
+            );
+        }
+
+        Test.startTest();
+        AIDocIntakeCategoryService.attachDocumentsToCategories(categoryIdsByContentDocumentId);
+        AIDocIntakeCategoryService.attachDocumentsToCategories(categoryIdsByContentDocumentId);
+        Test.stopTest();
+
+        Set<Id> categoryIds = new Map<Id, clcommon__Document_Category__c>(categories).keySet();
+        Set<String> contentDocumentIdTexts = new Set<String>();
+        for (Id contentDocumentId : contentDocumentIds) {
+            contentDocumentIdTexts.add(String.valueOf(contentDocumentId));
+        }
+        Assert.areEqual(12, [
+            SELECT COUNT()
+            FROM ContentDocumentLink
+            WHERE LinkedEntityId IN :categoryIds
+            AND ContentDocumentId IN :contentDocumentIds
+        ], 'bulk placement should create one category link per file');
+        Assert.areEqual(12, [
+            SELECT COUNT()
+            FROM clcommon__Category_Attachment_Association__c
+            WHERE clcommon__Document_Category__c IN :categoryIds
+            AND clcommon__Content_Document_Id__c IN :contentDocumentIdTexts
+            AND clcommon__Status__c = 'Submitted'
+        ], 'bulk placement should create one current product association per file');
+    }
+
     private static Id createContentDocument(String title) {
         ContentVersion version = new ContentVersion(
             Title = title,
@@ -68,5 +107,31 @@ private class AIDocIntakeCategoryServiceTest {
             WHERE Id = :version.Id
             LIMIT 1
         ].ContentDocumentId;
+    }
+
+    private static List<Id> createContentDocuments(Integer count) {
+        List<ContentVersion> versions = new List<ContentVersion>();
+        for (Integer i = 0; i < count; i++) {
+            String title = 'bulk_file_' + i;
+            versions.add(new ContentVersion(
+                Title = title,
+                PathOnClient = title + '.pdf',
+                VersionData = Blob.valueOf('PDF-BYTES-' + title),
+                IsMajorVersion = true
+            ));
+        }
+        insert versions;
+
+        Set<Id> versionIds = new Map<Id, ContentVersion>(versions).keySet();
+        List<Id> contentDocumentIds = new List<Id>();
+        for (ContentVersion version : [
+            SELECT ContentDocumentId
+            FROM ContentVersion
+            WHERE Id IN :versionIds
+            ORDER BY Title ASC
+        ]) {
+            contentDocumentIds.add(version.ContentDocumentId);
+        }
+        return contentDocumentIds;
     }
 }

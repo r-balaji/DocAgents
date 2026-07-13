@@ -522,6 +522,7 @@ public with sharing class AIDocIntakeCategoryMappingService {
         Id fallbackCategoryId;
         Integer fallbackCount = 0;
         List<MappingDecision> applied = new List<MappingDecision>();
+        Map<Id, Set<Id>> categoryIdsByContentDocumentId = new Map<Id, Set<Id>>();
         for (OutputFile file : outputFiles) {
             MappingDecision decision = decisionsByContentDocumentId.get(file.contentDocumentId);
             if (decision == null) {
@@ -531,11 +532,13 @@ public with sharing class AIDocIntakeCategoryMappingService {
                 decision = fallbackDecision(file, fallbackCategoryId);
                 fallbackCount++;
             }
-            for (Id categoryId : decision.documentCategoryIds) {
-                AIDocIntakeCategoryService.attachDocumentToCategory(categoryId, file.contentDocumentId);
-            }
+            categoryIdsByContentDocumentId.put(
+                file.contentDocumentId,
+                new Set<Id>(decision.documentCategoryIds)
+            );
             applied.add(decision);
         }
+        AIDocIntakeCategoryService.attachDocumentsToCategories(categoryIdsByContentDocumentId);
 
         String detail = 'Mapped ' + outputFiles.size() + ' split output file(s) to application document categories.';
         if (fallbackCount > 0) {

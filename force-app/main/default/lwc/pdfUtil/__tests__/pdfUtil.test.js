@@ -120,7 +120,25 @@ describe('buildBrowserSaveRequests', () => {
         ]);
     });
 
-    it('throws when a known document output is too large', async () => {
+    it('splits an oversized known output into numbered files', async () => {
+        const { PDFDocument, sourceDoc } = fakePdfEnv([100, 100, 100]);
+        const requests = await buildBrowserSaveRequests(PDFDocument, sourceDoc, [{
+            fileName: 'BankStatement_Chase_Jimmy.pdf',
+            documentType: 'BANK_STATEMENT',
+            sourceInstitution: 'Chase',
+            namedParty: 'Jimmy',
+            instanceLabel: null,
+            pages: [1, 2, 3]
+        }], 150, 10000);
+
+        expect(requests.map((req) => ({ fileName: req.fileName, pages: req.pages }))).toEqual([
+            { fileName: 'BankStatement_Chase_Jimmy_1.pdf', pages: [1] },
+            { fileName: 'BankStatement_Chase_Jimmy_2.pdf', pages: [2] },
+            { fileName: 'BankStatement_Chase_Jimmy_3.pdf', pages: [3] }
+        ]);
+    });
+
+    it('throws when one page of a known document exceeds the browser limit', async () => {
         const { PDFDocument, sourceDoc } = fakePdfEnv([100]);
 
         await expect(buildBrowserSaveRequests(PDFDocument, sourceDoc, [{
@@ -130,7 +148,7 @@ describe('buildBrowserSaveRequests', () => {
             namedParty: null,
             instanceLabel: null,
             pages: [1]
-        }], 10, 10000)).rejects.toThrow('BankStatement_Chase.pdf is too large');
+        }], 10, 10000)).rejects.toThrow('BankStatement_Chase_1.pdf is too large');
     });
 });
 

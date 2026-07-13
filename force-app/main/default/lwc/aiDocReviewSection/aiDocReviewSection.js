@@ -2,6 +2,7 @@ import { LightningElement, api, wire } from 'lwc';
 import { getRecord, getFieldValue, notifyRecordUpdateAvailable } from 'lightning/uiRecordApi';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import EMAIL_TEMPLATE_FIELD from '@salesforce/schema/genesis__Applications__c.Email_Template__c';
+import acceptApplicationUpload from '@salesforce/apex/AIDocIntakeService.acceptApplicationUpload';
 
 const FALLBACK_SUBJECT = 'Loan Application — Documents Needed';
 
@@ -10,6 +11,8 @@ export default class AiDocReviewSection extends LightningElement {
     @api toAddress;
 
     showFullModal = false;
+    showUploadModal = false;
+    isStartingIntake = false;
 
     @wire(getRecord, { recordId: '$recordId', fields: [EMAIL_TEMPLATE_FIELD] })
     application;
@@ -24,6 +27,10 @@ export default class AiDocReviewSection extends LightningElement {
 
     get hasEmailDisabled() {
         return !this.hasEmail;
+    }
+
+    get acceptedUploadFormats() {
+        return ['.pdf'];
     }
 
     get parsed() {
@@ -67,6 +74,43 @@ export default class AiDocReviewSection extends LightningElement {
         this.showFullModal = false;
     }
 
+    handleOpenUpload() {
+        this.showUploadModal = true;
+    }
+
+    handleCloseUpload() {
+        if (!this.isStartingIntake) {
+            this.showUploadModal = false;
+        }
+    }
+
+    async handleUploadFinished(event) {
+        const uploadedFile = event.detail.files?.[0];
+        if (!uploadedFile?.documentId) {
+            this.showToast('Upload failed', 'Salesforce did not return the uploaded file Id.', 'error');
+            return;
+        }
+
+        this.isStartingIntake = true;
+        try {
+            await acceptApplicationUpload({
+                applicationId: this.recordId,
+                contentDocumentId: uploadedFile.documentId
+            });
+            this.showUploadModal = false;
+            this.showToast(
+                'Document intake started',
+                `${uploadedFile.name} will be split, categorized, and reviewed in the background.`,
+                'success'
+            );
+            notifyRecordUpdateAvailable([{ recordId: this.recordId }]);
+        } catch (error) {
+            this.showToast('Document intake failed', this.reduceError(error), 'error');
+        } finally {
+            this.isStartingIntake = false;
+        }
+    }
+
     async handleCopy() {
         if (!this.hasEmail) return;
         const text = `Subject: ${this.subject}\n\n${this.parsed.body}`;
@@ -92,5 +136,13 @@ export default class AiDocReviewSection extends LightningElement {
 
     handleFlowFinished() {
         notifyRecordUpdateAvailable([{ recordId: this.recordId }]);
+    }
+
+    showToast(title, message, variant) {
+        this.dispatchEvent(new ShowToastEvent({ title, message, variant }));
+    }
+
+    reduceError(error) {
+        return error?.body?.message || error?.message || 'Unexpected error.';
     }
 }

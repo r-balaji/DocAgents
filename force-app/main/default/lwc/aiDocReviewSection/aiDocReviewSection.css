@@ -131,6 +131,15 @@
     font-weight: 600;
 }
 
+.upload-modal-shell {
+    max-width: 36rem;
+}
+
+.upload-modal-body {
+    min-height: 9rem;
+    position: relative;
+}
+
 /* ─── Modal: real email-client styling ─────────────────────────── */
 
 .modal-shell {
