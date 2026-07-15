@@ -1,27 +1,30 @@
 <template>
-    <lightning-input
-        type="checkbox"
-        label="Include Other documents"
-        checked={includeFallbackCategory}
-        disabled={isBusy}
-        onchange={handleIncludeFallbackChange}>
-    </lightning-input>
-    <lightning-button-group>
-        <lightning-button
-            label={reviewButtonLabel}
-            variant={buttonVariant}
-            icon-name="utility:einstein"
+    <div class={controlClass}>
+        <lightning-input
+            class="fallback-toggle"
+            type="checkbox"
+            label="Include Other documents"
+            checked={includeFallbackCategory}
             disabled={isBusy}
-            onclick={handleClick}>
-        </lightning-button>
-        <lightning-button
-            label={clearButtonLabel}
-            variant="destructive-text"
-            icon-name="utility:delete"
-            disabled={isBusy}
-            onclick={handleClearReview}>
-        </lightning-button>
-    </lightning-button-group>
+            onchange={handleIncludeFallbackChange}>
+        </lightning-input>
+        <lightning-button-group>
+            <lightning-button
+                label={reviewButtonLabel}
+                variant={buttonVariant}
+                icon-name="utility:einstein"
+                disabled={isBusy}
+                onclick={handleClick}>
+            </lightning-button>
+            <lightning-button
+                label={clearButtonLabel}
+                variant="destructive-text"
+                icon-name="utility:delete"
+                disabled={isBusy}
+                onclick={handleClearReview}>
+            </lightning-button>
+        </lightning-button-group>
+    </div>
 
     <template lwc:if={showModal}>
         <section role="dialog" tabindex="-1" aria-labelledby="aidoc1-modal-heading" aria-modal="true"

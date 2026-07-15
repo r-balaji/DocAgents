@@ -1,0 +1,24 @@
+.review-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.review-controls_compact {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.625rem;
+}
+
+.fallback-toggle {
+    margin: 0;
+}
+
+@media (max-width: 600px) {
+    .review-controls_compact {
+        justify-content: flex-start;
+    }
+}

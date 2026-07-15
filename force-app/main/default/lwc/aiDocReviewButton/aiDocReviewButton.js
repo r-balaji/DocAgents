@@ -8,6 +8,7 @@ export default class AiDoc1ReviewButton extends LightningElement {
     @api recordId;
     @api buttonLabel = 'AI Document Review';
     @api buttonVariant = 'brand';
+    @api compact = false;
 
     flowApiName = 'AIDocCoverageReview';
     showFlow = false;
@@ -30,6 +31,10 @@ export default class AiDoc1ReviewButton extends LightningElement {
 
     get isBusy() {
         return this.isChecking || this.isClearing;
+    }
+
+    get controlClass() {
+        return this.compact ? 'review-controls review-controls_compact' : 'review-controls';
     }
 
     get reviewButtonLabel() {
