@@ -13,6 +13,7 @@ export default class AiDocReviewSection extends LightningElement {
     showFullModal = false;
     showUploadModal = false;
     isStartingIntake = false;
+    isExpanded = false;
 
     @wire(getRecord, { recordId: '$recordId', fields: [EMAIL_TEMPLATE_FIELD] })
     application;
@@ -31,6 +32,22 @@ export default class AiDocReviewSection extends LightningElement {
 
     get acceptedUploadFormats() {
         return ['.pdf'];
+    }
+
+    get emailStatusLabel() {
+        return this.hasEmail ? 'Draft ready' : 'No draft';
+    }
+
+    get emailStatusClass() {
+        return this.hasEmail ? 'review-status review-status_ready' : 'review-status';
+    }
+
+    get toggleIconName() {
+        return this.isExpanded ? 'utility:chevronup' : 'utility:chevrondown';
+    }
+
+    get toggleTitle() {
+        return this.isExpanded ? 'Collapse document review' : 'Expand document review';
     }
 
     get parsed() {
@@ -62,6 +79,10 @@ export default class AiDocReviewSection extends LightningElement {
         const firstPara = body.split(/\r?\n\s*\r?\n/)[0] || '';
         const oneLine = firstPara.replace(/\s+/g, ' ').trim();
         return oneLine.length > 180 ? `${oneLine.slice(0, 180)}…` : oneLine;
+    }
+
+    handleToggle() {
+        this.isExpanded = !this.isExpanded;
     }
 
     handleShowFull() {
